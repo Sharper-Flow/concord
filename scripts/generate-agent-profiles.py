@@ -293,7 +293,7 @@ def load_primary_profiles(manifest: dict, path: Path = PRIMARY_PROFILES) -> dict
     return profiles
 
 
-# OpenCode 2.3.2 names the bash and task tools shell and subagent, and checks
+# OpenCode 2.4.1 names the bash and task tools shell and subagent, and checks
 # its write and patch tools against the edit action.
 V2_ACTIONS = {"bash": "shell", "task": "subagent", "write": "edit", "patch": "edit", "apply_patch": "edit"}
 

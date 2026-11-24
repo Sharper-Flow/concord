@@ -26,11 +26,11 @@
 
 ## Context
 
-The pinned `@opencode/plugin@2.3.2` host result uses `content` for tool text
-([schema](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/schema/src/tool.ts#L103-L107)).
+The pinned `@opencode/plugin@2.4.1` host result uses `content` for tool text
+([schema](https://github.com/anomalyco/opencode/blob/6f0514052a3c859894ad01bb14cc14dda1e44b96/packages/schema/src/tool.ts#L108-L112)).
 The host treats an `output` key on a tool without an output schema as a defect,
 even when its value is undefined
-([runtime](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/tool/runtime.ts#L48-L49)).
+([runtime](https://github.com/anomalyco/opencode/blob/6f0514052a3c859894ad01bb14cc14dda1e44b96/packages/core/src/tool/runtime.ts#L59-L60)).
 The adapter must conform to that boundary without changing the core envelope.
 
 ## Decision

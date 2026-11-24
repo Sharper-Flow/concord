@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -131,6 +132,24 @@ class QualificationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             inner.inspect_envelope(messages)
 
+    def test_session_parts_fold_before_inline_content(self):
+        with sqlite3.connect(":memory:") as db:
+            db.execute("create table session_message (id text, session_id text, type text, data text)")
+            db.execute("create table session_part (message_id text, ordinal integer, data text)")
+            db.executemany("insert into session_message values (?, ?, ?, ?)", [
+                ("a", "ses_one", "assistant", json.dumps({"content": [{"text": "inline"}]})),
+                ("b", "ses_one", "user", json.dumps({"text": "unchanged"})),
+            ])
+            db.executemany("insert into session_part values (?, ?, ?)", [
+                ("a", 2, json.dumps({"text": "second"})),
+                ("a", 1, json.dumps({"text": "first"})),
+            ])
+            messages = inner.load_messages(db)
+            self.assertEqual([
+                ("ses_one", "assistant", {"content": [{"text": "first"}, {"text": "second"}, {"text": "inline"}]}),
+                ("ses_one", "user", {"text": "unchanged"}),
+            ], messages)
+
     def test_session_prepare_rejects_skipped_go_test(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -158,10 +177,12 @@ class QualificationTests(unittest.TestCase):
         messages = [("ses_parent", "assistant", {"content": [task("concord-implement", "ses_child")]}),
                     ("ses_child", "assistant", {"content": [task("concord-explore", "ses_nested")]}),
                     ("ses_child", "idle", {}),
-                    ("ses_parent", "user", {"text": '<subagent sessionID="ses_child" state="completed">done</subagent>'})]
+                    ("ses_parent", "user", {"text": '<background-result kind="subagent" sessionID="ses_child" state="completed">done</background-result>'})]
         self.assertEqual("pass", inner.inspect_background(messages, "ses_parent")["status"])
         self.assertIsNone(inner.inspect_background(messages[:-1], "ses_parent"))
-        messages[-1] = ("ses_parent", "user", {"text": '<subagent sessionID="ses_other" state="completed">done</subagent>'})
+        messages[-1] = ("ses_parent", "user", {"text": '<background-result kind="subagent" sessionID="ses_child" state="running">Background work still running:</background-result>'})
+        self.assertIsNone(inner.inspect_background(messages, "ses_parent"))
+        messages[-1] = ("ses_parent", "user", {"text": '<background-result kind="subagent" sessionID="ses_other" state="completed">done</background-result>'})
         self.assertIsNone(inner.inspect_background(messages, "ses_parent"))
 
     def abort_proof(self, **error):

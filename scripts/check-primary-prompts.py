@@ -71,7 +71,7 @@ NAMED_PROFILE_FILES = (
 # The profiles that leave every unnamed shell command to the host (CD-0154 D2).
 FULL_PROFILE_FILES = ("Concord-RTE.md", "Concord.md")
 PLANNER_PROFILE_FILE = "Concord-Planner.md"
-# OpenCode 2.3.2 checks its write and patch tools against the edit action.
+# OpenCode 2.4.1 checks its write and patch tools against the edit action.
 PRIMARY_BUILD_TOOLS = ("edit",)
 V2_ACTIONS = {"bash": "shell", "task": "subagent", "write": "edit", "patch": "edit", "apply_patch": "edit"}
 # The RTE holds coordination in a Linear project. An issue used as the

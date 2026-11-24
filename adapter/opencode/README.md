@@ -165,9 +165,9 @@ OpenCode owns Task execution, child sessions, progress, cancellation, permission
 and model selection. The adapter does not intercept Task arguments, authorize
 subagents, package prompts, or read their results into Concord evidence.
 
-On OpenCode 2.3.2, every subagent runs in the background. Task returns a session
-ID with status running; when the child goes idle, the host sends a `<subagent>`
-report to the parent. Act on a child only from its completed report, never by
+On OpenCode 2.4.1, every subagent runs in the background. Task returns a session
+ID with status running; when the child goes idle, the host sends a
+`<background-result kind="subagent">` report to the parent. Act on a child only from its completed report, never by
 polling or sleeping.
 
 The coordinator obtains independent review through native Task, then records

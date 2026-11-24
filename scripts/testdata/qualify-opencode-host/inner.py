@@ -14,6 +14,31 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
+def load_messages(database, session=None, kind=None):
+    query = "select id, session_id, type, data from session_message"
+    filters = []
+    params = []
+    if session is not None:
+        filters.append("session_id = ?")
+        params.append(session)
+    if kind is not None:
+        filters.append("type = ?")
+        params.append(kind)
+    if filters:
+        query += " where " + " and ".join(filters)
+    messages = []
+    for message_id, session_id, message_type, raw in database.execute(query, params):
+        data = json.loads(raw)
+        if message_type == "assistant":
+            parts = [json.loads(row[0]) for row in database.execute(
+                "select data from session_part where message_id = ? order by ordinal", (message_id,))]
+            if parts:
+                inline = data.get("content")
+                data["content"] = parts + (inline if isinstance(inline, list) else [])
+        messages.append((session_id, message_type, data))
+    return messages
+
+
 def inspect_envelope(messages):
     tools = [part for message in messages for part in message.get("content", [])
              if part.get("type") == "tool" and part.get("name") == "concord_product_view"]
@@ -58,7 +83,7 @@ def inspect_background(messages, session):
             or not nested[0]["state"]["metadata"].get("sessionID", "").startswith("ses_")):
         return None
     reports = [data.get("text", "") for data in parent
-               if f'<subagent sessionID="{child}" state="completed"' in data.get("text", "")]
+               if f'<background-result kind="subagent" sessionID="{child}" state="completed"' in data.get("text", "")]
     if not reports or not any(kind == "idle" for kind, _ in child_messages):
         return None
     return {"status": "pass", "parent_session_id": session, "child_session_id": child,
@@ -92,7 +117,7 @@ class Model(BaseHTTPRequestHandler):
         called = any(message.get("role") == "tool" for message in messages)
         text = "\n".join(str(message.get("content", "")) for message in messages)
         role = "explore" if "QUALIFICATION_EXPLORE" in text else "implement" if "QUALIFICATION_IMPLEMENT" in text else "primary"
-        if self.scenario == "background" and "subagent" in names and not called and "<subagent " not in text and role != "explore":
+        if self.scenario == "background" and "subagent" in names and not called and '<background-result kind="subagent"' not in text and role != "explore":
             target = "concord-explore" if role == "implement" else "concord-implement"
             prompt = "QUALIFICATION_EXPLORE" if role == "implement" else "QUALIFICATION_IMPLEMENT"
             delta = {"role": "assistant", "tool_calls": [{"index": 0, "id": "call_" + role,
@@ -215,8 +240,7 @@ def main(scenario):
                 time.sleep(0.05)
             alive = Path(f"/proc/{pid}").exists()
             with sqlite3.connect("/tmp/work/qualification.db") as database:
-                rows = database.execute("select data from session_message where session_id = ? and type = 'assistant'", (created["id"],))
-                messages = [json.loads(row[0]) for row in rows]
+                messages = [data for _, _, data in load_messages(database, created["id"], "assistant")]
             try:
                 proof = inspect_envelope(messages)
             except (ValueError, KeyError) as exc:
@@ -238,8 +262,7 @@ def main(scenario):
             deadline = time.monotonic() + 35
             while time.monotonic() < deadline:
                 with sqlite3.connect("/tmp/work/qualification.db") as database:
-                    rows = database.execute("select session_id, type, data from session_message")
-                    messages = [(row[0], row[1], json.loads(row[2])) for row in rows]
+                    messages = load_messages(database)
                 proof = inspect_background(messages, session)
                 if proof:
                     break
@@ -249,8 +272,7 @@ def main(scenario):
             return proof["status"] == "pass"
         else:
             with sqlite3.connect("/tmp/work/qualification.db") as database:
-                rows = database.execute("select data from session_message where session_id = ? and type = 'assistant'", (session,))
-                messages = [json.loads(row[0]) for row in rows]
+                messages = [data for _, _, data in load_messages(database, session, "assistant")]
             proof = inspect_envelope(messages)
             if Model.scenario == "directory":
                 calls = [json.loads(line) for line in (shim_dir / "calls.jsonl").read_text().splitlines()]

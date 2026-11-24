@@ -139,6 +139,7 @@ class QualificationTests(unittest.TestCase):
             db.executemany("insert into session_message values (?, ?, ?, ?)", [
                 ("a", "ses_one", "assistant", json.dumps({"content": [{"text": "inline"}]})),
                 ("b", "ses_one", "user", json.dumps({"text": "unchanged"})),
+                ("c", "ses_one", "assistant", json.dumps({"content": [{"text": "only inline"}]})),
             ])
             db.executemany("insert into session_part values (?, ?, ?)", [
                 ("a", 2, json.dumps({"text": "second"})),
@@ -148,6 +149,7 @@ class QualificationTests(unittest.TestCase):
             self.assertEqual([
                 ("ses_one", "assistant", {"content": [{"text": "first"}, {"text": "second"}, {"text": "inline"}]}),
                 ("ses_one", "user", {"text": "unchanged"}),
+                ("ses_one", "assistant", {"content": [{"text": "only inline"}]}),
             ], messages)
 
     def test_session_prepare_rejects_skipped_go_test(self):

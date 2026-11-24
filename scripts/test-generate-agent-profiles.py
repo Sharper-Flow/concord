@@ -45,7 +45,7 @@ class ProfileTests(unittest.TestCase):
             self.assertTrue(set(top_level) <= {"description", "mode", "hidden", "permissions"})
             for rule in checks.v2_rules(frontmatter):
                 self.assertEqual(set(rule), {"action", "resource", "effect"})
-                self.assertNotIn(rule["action"], generator.V2_ACTIONS, "OpenCode 2.3.2 never checks this action")
+                self.assertNotIn(rule["action"], generator.V2_ACTIONS, "OpenCode 2.4.1 never checks this action")
 
     def test_only_native_utilities_are_generated(self):
         self.assertEqual([entry["id"] for entry in self.manifest["utilities"]], ["explore", "lookup", "advisor"])

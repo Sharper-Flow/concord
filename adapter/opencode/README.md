@@ -167,8 +167,8 @@ subagents, package prompts, or read their results into Concord evidence.
 
 On OpenCode 2.4.1, every subagent runs in the background. Task returns a session
 ID with status running; when the child goes idle, the host sends a
-`<background-result kind="subagent">` report to the parent. Act on a child only from its completed report, never by
-polling or sleeping.
+`<background-result kind="subagent">` report to the parent. Act on a child only
+from its completed report, never by polling or sleeping.
 
 The coordinator obtains independent review through native Task, then records
 `record_review` through `concord_work_transition.workflow_action` with
@@ -254,7 +254,7 @@ operator-owned UI/UX approval; a Task result never supplies it. Product browser
 tooling may be used when exposed by the host, but the profile adds no provider.
 
 Hosts that enable helper-to-utility delegation must set OpenCode's
-[`experimental.subagent_depth`](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/session/subagent-depth.ts#L14)
+[`experimental.subagent_depth`](https://github.com/anomalyco/opencode/blob/6f0514052a3c859894ad01bb14cc14dda1e44b96/packages/core/src/session/subagent-depth.ts#L14)
 to `2`. Its default `1` admits the helper but stops nested Tasks; the profile's
 Task allowlist does not override that host ceiling. Concord does not change it.
 

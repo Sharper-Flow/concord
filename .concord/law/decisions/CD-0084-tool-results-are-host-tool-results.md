@@ -49,7 +49,7 @@ carrier and one parse: a reader never has to decide which of two copies is
 current, and the payload is not doubled against the host's byte ceiling. The
 result has no `output` key and `metadata` never contains `truncated`: the host
 skips its output bound for any result whose `metadata.truncated` is set
-([source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/tool-output.ts#L76)).
+([source](https://github.com/anomalyco/opencode/blob/6f0514052a3c859894ad01bb14cc14dda1e44b96/packages/core/src/tool-output.ts#L76)).
 
 The adapter does not render prose for the model. A rendered summary would move
 presentation into the envelope-thin adapter, and would
@@ -65,7 +65,7 @@ boundary.
 ### D4. An oversize result becomes a bounded error envelope
 
 The host bounds output at 2,000 lines or 51,200 bytes
-([source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/tool-output.ts#L13-L14)). Rather than let it cut an
+([source](https://github.com/anomalyco/opencode/blob/6f0514052a3c859894ad01bb14cc14dda1e44b96/packages/core/src/tool-output.ts#L13-L14)). Rather than let it cut an
 envelope into invalid JSON, `encodeHostResult` measures the serialized envelope
 against the 51,200-byte `maxEnvelopeBytes` and replaces an oversize result with
 an adapter error chosen by operation kind. An oversize mutation response may

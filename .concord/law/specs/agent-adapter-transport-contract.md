@@ -35,7 +35,7 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS6; binding input to CD-0005 §6, agent-result-envelope and TS8–TS9.
 > **Binding inputs:** CD-0003 short-lived Go CLI/no daemon; accepted TS1–TS5
-> contracts; capability-placement native-authority rule; pinned OpenCode 2.3.2
+> contracts; capability-placement native-authority rule; pinned OpenCode 2.4.1
 > plugin, tool, session, and configuration source cited in §9.
 > **Does not decide:** agent-result-envelope result/error field layout, TS8 digest identity/change
 > evidence, TS9 pre-go-live measurements, adapter package/repository name, or UI styling.
@@ -45,7 +45,7 @@
 Concord's Go core needs one primary client transport. The binding inputs are
 CD-0003's short-lived Go CLI decision, the accepted TS1 through TS5
 contracts, the capability-placement native-authority rule, and the official
-OpenCode 2.3.2 plugin, tool, session, and configuration source cited in §9.
+OpenCode 2.4.1 plugin, tool, session, and configuration source cited in §9.
 The thin TypeScript adapter provides the accepted custom tools
 through a plugin entry module, with transport to the short-lived CLI and the
 host context responsibilities.
@@ -182,7 +182,7 @@ ordinary step records; the adapter does not turn prose into an actor or grant.
 Question projections, withholding fields, semantic choices and human context
 digests are not part of the transport contract.
 
-Release must pin `@opencode/cli@2.3.2` and `@opencode/plugin@2.3.2` and verify
+Release must pin `@opencode/cli@2.4.1` and `@opencode/plugin@2.4.1` and verify
 their exact tool-context field names.
 Missing or drifted behavior fails consequential mutations closed — never
 approval prose or `approved: true`.
@@ -260,10 +260,10 @@ explicit CD-0003 D2 reconsideration. It must preserve the same seven semantics.
 ## 9. Evidence
 
 - Tool context and execution signal:
-  [plugin tool source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/plugin/src/promise/tool.ts#L11).
+  [plugin tool source](https://github.com/anomalyco/opencode/blob/6f0514052a3c859894ad01bb14cc14dda1e44b96/packages/plugin/src/promise/tool.ts#L11).
 - Plugin registration and session hooks:
-  [plugin source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/plugin/src/promise/plugin.ts),
-  [session source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/plugin/src/promise/session.ts).
+  [plugin source](https://github.com/anomalyco/opencode/blob/6f0514052a3c859894ad01bb14cc14dda1e44b96/packages/plugin/src/promise/plugin.ts),
+  [session source](https://github.com/anomalyco/opencode/blob/6f0514052a3c859894ad01bb14cc14dda1e44b96/packages/plugin/src/promise/session.ts).
 - Permissions use `allow|ask|deny`, input patterns, and per-agent overrides:
   <https://opencode.ai/docs/permissions/>.
 - MCP local/remote behavior and context caveat:

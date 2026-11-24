@@ -15,7 +15,7 @@ func stubResolution(document string) hostCommandResolution {
 	return hostCommandResolution{Command: append([]string(nil), defaultHostCommand...), Registry: []byte(document)}
 }
 
-// The document mirrors the sorted Agent.Info array OpenCode 2.3.2 prints for
+// The document mirrors the sorted Agent.Info array OpenCode 2.4.1 prints for
 // `debug agents`, including fields Concord does not read. A hidden primary
 // still starts by its ID, so hidden alone does not refuse.
 func TestHostRegistrationAcceptsV2Registry(t *testing.T) {

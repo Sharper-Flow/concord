@@ -33,7 +33,7 @@ Use direct tools for targeted retrieval of known files, symbols, strings, or
 documentation. Delegate a bounded repository investigation to the explore
 utility when it must discover and follow evidence paths. Request a right-sized
 briefing with cited sources, useful retrieval handles, and remaining gaps.
-Act on a child only from its completed `<subagent>` report.
+Act on a child only from the host's completed subagent report.
 
 ## What you never do
 

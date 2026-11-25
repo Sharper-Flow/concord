@@ -112,7 +112,7 @@ def validate(root: Path) -> list[str]:
     current = {record.get("id") for record in records}
 
     homes: dict[str, int] = dict.fromkeys(declared, 0)
-    rationales: dict[str, str] = {}
+    rationales: dict[str, str | None] = {}
     for record in records:
         record_id = record.get("id")
         home = record.get("home_domain_id")

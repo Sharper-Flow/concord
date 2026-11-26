@@ -1,6 +1,6 @@
 ---
 name: concord-ui-design
-description: Make a visual UI or UX change, wireframe, mock or preview in any Product — match its existing design system, hold an accessibility floor with linked WCAG criteria, produce an inspectable preview with its exact version before implementation, route UI/UX approval to the operator, and verify the result in a browser with screenshots. Use for visual design work, an interface-rule check of UI code, or preparing UI material for operator approval.
+description: Make a visual UI or UX change, wireframe, mock or preview in any Product — match its existing design system, hold an accessibility floor with linked WCAG criteria, use an inspectable preview with its exact version before implementation, route UI/UX approval to the operator, and verify the result in a browser with screenshots. Use for visual design work, an interface-rule check of UI code, or preparing UI material for operator approval.
 ---
 
 # UI design
@@ -97,23 +97,31 @@ A checkable set, adapted to the Product's stack and its own conventions:
 
 ## Preview before implementation
 
-Before changing Product code, produce an inspectable preview that answers the
-question at hand: a static mock, a throwaway route, or the change running on
-a branch. The question decides the shape — a look-and-feel question needs
-variants to compare side by side, a flow question needs the flow clickable,
-a state question needs the hard cases visible. One preview that answers
-nothing is worse than one crude one that answers the question.
+Before changing Product code, inspect mockups attached or linked to the ticket.
+Reuse one that is inspectable, has an identifiable exact version, and covers
+the requested design. Supplement it only for material decisions it does not
+cover; if no suitable mockup exists, prepare an inspectable preview. No
+particular design tool is required. A ticket you cannot read is not a ticket
+without mockups: get them from the caller or report the gap.
 
-A mock or throwaway route is throwaway from the start: trivially runnable,
-holding no persistence, surfacing the state it demonstrates. When it settles a
-decision, fold that decision into the real work; throwaway preview code never
-lands on the default branch. A preview that runs the real change on a branch
-is an exception: it exists to become the change, under the normal review and
-approval route.
+The preview must answer the question at hand: it may be a static mock, a
+throwaway route, or the change running on a branch. The question decides the
+shape — a look-and-feel question needs variants to compare side by side, a
+flow question needs the flow clickable, a state question needs the hard cases
+visible. One preview that answers nothing is worse than one crude one that
+answers the question.
 
-Identify the exact version shown: the base commit plus the diff or snapshot
-identity. Preview material without a version cannot be reviewed, compared or
-approved.
+Preview code for a mock or throwaway route is throwaway from the start:
+trivially runnable, holding no persistence, and surfacing the state it
+demonstrates. When it settles a decision, fold that decision into the real work;
+throwaway preview code never lands on the default branch. A preview that runs
+the real change on a branch is an exception: it exists to become the change,
+under the normal review and approval route.
+
+Identify the exact version shown: for code, the base commit plus the diff or
+snapshot identity; for a non-code artifact, a stable attachment or snapshot
+identifies the version. Preview material without a version cannot be reviewed,
+compared or approved.
 
 ## Operator approval
 
@@ -126,8 +134,9 @@ version to its caller and does not ask the operator itself. A minor correction
 that introduces no new design or interaction needs no fresh approval
 (CD-0243).
 
-A request to prepare a preview, a passing browser check, an approved plan, or
-a design the agent itself likes is never approval. Preparing material is not
+A ticket attachment, a request to prepare a preview, a passing browser check,
+an approved plan, or a design the agent itself likes is never approval.
+Approval must cover the exact version presented. Preparing material is not
 asking; asking is not approval.
 
 ## Verify in a browser

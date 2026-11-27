@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -372,7 +373,13 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 	// a Product with no designated home keeps the domain read's own refusal.
 	switch r.Operation {
 	case "list":
-		result, err := r.Store.QueryDomainList(ctx, store.DomainListRequest{Product: product, Limit: effectiveLimit(in.Limit, in.Page), Cursor: deref(in.Page.Cursor)})
+		in.ProductID = product
+		binding := pageBinding(in, func(p *domainReadInput) { p.Page.Cursor = nil })
+		inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), binding, "domains")
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		result, err := r.Store.QueryDomainList(ctx, store.DomainListRequest{Product: product, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner})
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
@@ -380,7 +387,14 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 		if err != nil {
 			return response, err
 		}
-		return r.wrapCursor(ctx, response, queryID+":"+product, "domains")
+		if response.NextCursor != nil {
+			revision, err := r.Store.Revision(ctx)
+			if err != nil {
+				return failureEnvelope(base, err), nil
+			}
+			response.CursorSource = strconv.FormatInt(revision, 10)
+		}
+		return r.wrapCursor(ctx, response, binding, "domains")
 	case "detail":
 		if in.DomainID == "" {
 			return coreError(base, "invalid_input", "Domain detail requires domain_id", "reread_entities", false), nil

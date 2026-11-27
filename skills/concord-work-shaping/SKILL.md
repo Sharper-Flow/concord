@@ -70,11 +70,11 @@ rule. Record question resolutions or
 the explicit result that no operator questions remain. Running the step is
 mandatory where the plan carries it; asking is not. Clarify settles what to
 build and grants no blanket implementation or UI/UX
-approval. Before planning closes, sweep and settle foreseeable decisions about
-reachable approval classes (including existing-data repair, pilot or spend
-bounds, and UI approval points), file scope including adjacent tests, and
-applicable checks and host limits. Reuse settled answers; ask later questions
-only about facts the work newly reveals.
+approval. Before planning closes, sweep and settle foreseeable decisions: ask
+the approval-class choices the work can reach (including existing-data repair,
+pilot or spend bounds, and UI approval points); settle file scope including
+adjacent tests, applicable checks and host limits from evidence. Reuse settled
+answers; ask later questions only about facts the work newly reveals.
 
 ### Example: decision record
 

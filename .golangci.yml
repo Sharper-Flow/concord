@@ -47,7 +47,8 @@ linters:
   exclusions:
     warn-unused: true
     rules:
-      # Test-only unused helpers are tracked separately.
+      # Test files still hold unreferenced helpers. Production packages retain
+      # complete unused coverage.
       - path: _test\.go
         linters:
           - unused

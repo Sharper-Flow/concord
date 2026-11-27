@@ -92,7 +92,7 @@ checkable end state, and six-part plan. Diagnose unproven defect causes first.
 1. **Outcomes and checks:** each independent result, done condition, evidence, and dependencies.
 2. **Approach:** map each mechanism to its outcome, what fails without it, and the simpler alternative. Omit unmatched mechanism.
 3. **Decisions:** choices, reasons, rejected options; operator-reserved choices with class or reservation, consequence, and approval or question. Record none when none apply.
-4. **Touches:** derive affected files, interfaces, and law by tracing the outcome through every layer the affected party reaches. For each changed symbol list its callers and readers; on removal, identify what loses its last caller. Name the repository checks the diff triggers.
+4. **Touches:** derive affected files, interfaces, and law by tracing the outcome through every layer the affected party reaches. For each changed symbol account for its callers and readers; on removal, identify what loses its last caller. Name the repository checks the diff triggers.
 5. **Merge split:** small green merges; explain an inseparable cutover. Temporary coexistence needs a current requirement and retirement outcome.
 6. **Risks:** material uncertainties, failure modes, and how they will be checked.
 

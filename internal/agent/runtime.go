@@ -307,7 +307,7 @@ func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *S
 	if op.Kind != agentcontract.OperationRead {
 		return r.mutate(ctx, base, request.Input, grant, op)
 	}
-	return r.read(ctx, base, request.Input, op.QueryID)
+	return r.read(ctx, base, request.Input)
 }
 
 // budgetFailure carries the distinction applyBudget must report: a
@@ -829,8 +829,8 @@ func cursorValue(page pageInput) string {
 	return *page.Cursor
 }
 
-func (r runtime) read(ctx context.Context, base agentcontract.Envelope, input []byte, queryID string) (agentcontract.Envelope, error) {
-	response, err := r.readResult(ctx, base, input, queryID)
+func (r runtime) read(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
+	response, err := r.readResult(ctx, base, input)
 	if err != nil {
 		return response, err
 	}
@@ -864,7 +864,7 @@ func readSizeRefusal(response agentcontract.Envelope, size int) agentcontract.En
 	return out
 }
 
-func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, input []byte, queryID string) (agentcontract.Envelope, error) {
+func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	switch r.Tool + "." + r.Operation {
 	case "concord_product_view.resolve":
 		return r.readProductResolve(ctx, base, input)
@@ -883,7 +883,7 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 	case "concord_work_trace.project_retirement":
 		return r.readTraceProjectRetirement(ctx, base, input)
 	case "concord_domain.list", "concord_domain.detail":
-		return r.readDomain(ctx, base, input, queryID)
+		return r.readDomain(ctx, base, input)
 	default:
 		return base, errors.New("unsupported read operation")
 	}

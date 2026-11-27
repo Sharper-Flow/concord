@@ -355,7 +355,7 @@ func (r runtime) readTraceProjectRetirement(ctx context.Context, base agentcontr
 	return r.resultEnvelope(base, store.ResultMeta{}, retirement)
 }
 
-func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, input []byte, queryID string) (agentcontract.Envelope, error) {
+func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in domainReadInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err

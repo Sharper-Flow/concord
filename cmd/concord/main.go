@@ -323,16 +323,26 @@ const dbOverrideEnv = "CONCORD_DB_PATH"
 // dispatch. Store, handler, and output failures must not use this exit code.
 const inputRefusalExit = 64
 
+func readRequest(in io.Reader, limit int64) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(in, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("cannot read the request: %w", err)
+	}
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("input exceeds %d bytes", limit)
+	}
+	return raw, nil
+}
+
 func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.Writer) (exitCode int) {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, fmt.Sprintf("concord: unsupported arguments: %s", strings.Join(append([]string{command}, args...), " ")))
 		writeCommandUsageSection(errOut, command)
 		return 2
 	}
-	inputLimit := int64(agent.MaxRequestBytes)
-	raw, err := io.ReadAll(io.LimitReader(in, inputLimit+1))
-	if err != nil || int64(len(raw)) > inputLimit {
-		writeDiagnostic(errOut, fmt.Sprintf("input exceeds %d bytes", inputLimit))
+	raw, err := readRequest(in, agent.MaxRequestBytes)
+	if err != nil {
+		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
 	if err := validateRequiredCommandFields(command, raw); err != nil {

@@ -26,8 +26,8 @@ your result; an idle report with child work still running is progress. Never
 poll or sleep; you may end your turn, and the host wakes you with the next report.
 
 Start with the first necessary assigned action or required setup; omit incidental
-preflight. Use file tools for necessary repository reads, especially .concord
-paths. When a command is refused, including a host permission denial or an
+preflight. Read files with `read`, `glob`, `grep`; Git reads: one plain command per call.
+When a command is refused, including a host permission denial or an
 admission failure, stop the whole task and return the exact command and refusal
 to the caller. Never retry, rewrite, repackage, or split the refused command, or
 switch tools to pursue the refused purpose. An admitted command that fails
@@ -57,6 +57,9 @@ When the answer depends on unresolved law state, flag that part as unresolved
 and return it to the caller; continue only work independent of that law state.
 Candidate text outside the Product's current law folder is not accepted law.
 Keep source-text observations separate from the caller's resolved law context."""
+UTILITY_GIT_READ_GUIDANCE = """Use shell only for these reads: write each as a bare `git <subcommand> ...`,
+   one command per call, with the repository workdir; no `git -C`, `cd`, pipes,
+   chains, or redirects. Bound output with Git flags or a narrow pathspec."""
 UTILITY_BODY_TEMPLATES = {
     "explore": """This is a read-only repository exploration utility. Return a facts packet as
 plain text for the parent. Do not edit files, write files, patch files, mutate
@@ -77,24 +80,17 @@ parent can do directly, not a reason to start an investigation.
 
 ## Method
 
-1. Use `execute` when a connected MCP tool can improve repository exploration.
-   Inspect available tools with `Object.keys(tools)` or search for a relevant
-   tool by namespace, and call the exact tool path discovery returns. Which
-   tools are connected depends on host and Product configuration; discover
-   them by need rather than by name. Use read-only tools only, and verify
-   their results against repository sources.
-2. Read the repository structure with `glob` when no suitable connected tool
-   is available.
-3. Search for relevant symbols or text with `grep` when needed.
-4. Choose each next search from the evidence already found. Follow relevant
+1. Discover the catalog with `search` inside `execute`; call the exact path and
+   signature returned. Connected tools depend on host and Product configuration;
+   discover them by need, use read-only tools, and verify results against sources.
+2. Use `read` for known file contents and directory listings; use `glob` or `grep`
+   when no connected discovery tool fits.
+3. Choose each next search from the evidence already found. Follow relevant
    callers, owners, consumers, and tests; read only what answers the question.
-5. Answer history, status, or diff questions only with these commands:
+4. Answer history, status, or diff questions only with these commands:
    {git_commands}.
-   Write each as a bare `git <subcommand> ...` call and set the bash `workdir`
-   parameter to the repository. The host refuses the whole command when any
-   part falls outside that list, so add no `git -C`, `cd`, `&&`, `;`, or pipe.
-   Bound output with Git's own options, such as `-n 20` or `--stat`.
-6. Stop when the question has a source-backed answer, or after {duration} of
+   {git_read_guidance}
+5. Stop when the question has a source-backed answer, or after {duration} of
    total wall time, whichever comes first. Report the facts you hold when the
    cap stops you.
 
@@ -188,13 +184,10 @@ supplied answer anchors to it, and the parent asked for an independent one.
 2. Reach your own answer before you consider what the parent might want.
 3. Read the repository when the problem touches it: discover connected tools
    by need and search through `execute` first, then use `glob` or `grep` when
-   needed. Read only what the problem needs.
+   needed. Use `read` for known files and listings; read only what the problem needs.
 4. For history, status, or the current diff, use only these commands:
    {git_commands}.
-   Write each as a bare `git <subcommand> ...` call and set the bash `workdir`
-   parameter to the repository. The host refuses the whole command when any
-   part falls outside that list, so add no `git -C`, `cd`, `&&`, `;`, or pipe.
-   Bound output with Git's own options, such as `-n 20` or `--stat`.
+   {git_read_guidance}
 5. Stop when you hold a reasoned opinion, or after {duration} of total wall
    time, whichever comes first. Report the opinion you hold when the cap stops
    you.
@@ -246,7 +239,7 @@ def utility_projection(utility: dict) -> str:
     minutes, seconds = divmod(utility["time_seconds_max"], 60)
     duration = f"{minutes} minutes" if seconds == 0 else f"{utility['time_seconds_max']} seconds"
     commands = ", ".join(f"`{command.removesuffix(' *')}`" for command in utility["allowed_commands"])
-    body = UTILITY_BODY_TEMPLATES[utility["id"]].format(duration=duration, git_commands=commands, law_boundary=UTILITY_LAW_BOUNDARY).rstrip()
+    body = UTILITY_BODY_TEMPLATES[utility["id"]].format(duration=duration, git_commands=commands, law_boundary=UTILITY_LAW_BOUNDARY, git_read_guidance=UTILITY_GIT_READ_GUIDANCE).rstrip()
     return f"""---
 description: Concord {utility['id']} utility — {utility['purpose']}
 mode: subagent

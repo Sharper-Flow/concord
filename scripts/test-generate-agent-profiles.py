@@ -88,6 +88,37 @@ class ProfileTests(unittest.TestCase):
                 self.assertIn("`execute`", text)
                 self.assertIn(guidance[utility["id"]], " ".join(text.split()))
 
+    def test_repository_utility_read_guidance(self):
+        utilities = {utility["id"]: utility for utility in self.manifest["utilities"]}
+        for utility in (utilities["explore"], utilities["advisor"]):
+            with self.subTest(utility=utility["id"]):
+                text = generator.utility_projection(utility)
+                method = text.split("## Method\n", 1)[1].split("\n## ", 1)[0]
+                self.assertLessEqual(len(method.split()), {"explore": 218, "advisor": 166}[utility["id"]])
+                normalized = " ".join(method.split())
+                for clause in ("`read`", "Use shell only for these reads", "one command per call", "repository workdir",
+                               "no `git -C`, `cd`, pipes, chains, or redirects",
+                               "Git flags or a narrow pathspec"):
+                    self.assertIn(clause, normalized)
+        explore = generator.utility_projection(utilities["explore"])
+        method = " ".join(explore.split("## Method\n", 1)[1].split("\n## ", 1)[0].split())
+        for clause in ("`search` inside `execute`", "exact path and signature",
+                       "known file contents and directory listings", "`glob` or `grep`"):
+            self.assertIn(clause, method)
+
+    def test_step_helper_read_guidance(self):
+        preflight = "Start with the first necessary assigned action or required setup; omit incidental preflight."
+        guidance = "Read files with `read`, `glob`, `grep`; Git reads: one plain command per call."
+        boundary = " ".join(generator.STEP_HELPER_BOUNDARY.split())
+        for profile in self.profiles["profiles"]:
+            if profile["id"] in generator.STEP_HELPER_IDS:
+                with self.subTest(profile=profile["id"]):
+                    text = " ".join(generator.primary_projection(profile, "Role\n").split())
+                    self.assertIn(preflight, text)
+                    self.assertIn(guidance, text)
+        read_text = boundary.split(preflight, 1)[1].split("When a command is refused", 1)[0]
+        self.assertLessEqual(len(read_text.split()), 13)
+
     def test_agent_inventory_refuses_unprojected_definition(self):
         with tempfile.TemporaryDirectory() as directory:
             agents = Path(directory)
@@ -180,7 +211,7 @@ class ProfileTests(unittest.TestCase):
                 for clause in ("Command-text restrictions are hygiene, not a sandbox",
                                "do not use the CLI, a direct store connection, a wrapper, or a connected service to bypass your boundaries",
                                "Start with the first necessary assigned action or required setup; omit incidental preflight",
-                               "Use file tools for necessary repository reads, especially .concord paths",
+                               "Read files with `read`, `glob`, `grep`; Git reads: one plain command per call.",
                                "When a command is refused, including a host permission denial or an admission failure, stop the whole task",
                                "return the exact command and refusal to the caller",
                                "An admitted command that fails normally is not a refusal",

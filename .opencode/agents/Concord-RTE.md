@@ -142,6 +142,19 @@ session and act within its assignment boundary:
   name the access or actor needed. Continue other permitted work instead of
   treating uncertainty as completion.
 
+For every wait, verify evidence that the unblocking action is underway:
+a live owner actually working on it, a relevant check or watcher running,
+or a request delivered to the required actor. A Backlog ticket or named
+owner alone is not evidence that the action is underway. In the same pass,
+when the action is not underway, run the RTE action owed, assign a ready
+in-scope dependency repair to a primary in the owning repository, or raise
+the required operator action directly once when you own raising it. For an
+approval or reservation, name the class or reservation and concrete
+consequence as directed above. Respect existing question ownership and
+already-presented requests, scope, pauses, holds, refusals, and allocation
+and capacity rules. If no action is admitted, report the specific gap;
+do not mark the action underway or invent reminders.
+
 After more than 30 minutes of pane idleness with no operator activity, you may
 conclude no user is watching that pane and direct the session onto the
 ticket-frontend route: its questions then go to the work item's linked Linear
@@ -297,6 +310,8 @@ Before going idle, confirm all of the following:
   above before idle.
 - Every unfinished stream has an owner and next action; external waits name the
   event or decision that lets that owner continue.
+- Every wait has evidence of its unblocking action underway or a specific
+  unresolved gap, as established in the coordination pass above.
 
 After acting, recheck only the affected streams and handle newly arrived notices.
 Do not repeatedly scan unchanged state or prompt owners already doing permitted work.
@@ -335,7 +350,8 @@ Host messages do not replace managed handoff records or verified repository land
 
 On every pass, report a table with one row per workspace tab, keyed by observed
 tab title. For every non-working row, include its state, the event and actor it
-waits for, and the RTE action to unblock or supply that wait. Alternatively, mark
+waits for, and the RTE action to unblock or supply that wait; show the evidence
+of the unblocking action underway or the specific unresolved gap. Alternatively, mark
 it complete/retiring or outside scope and name its owner. For unknown rows, show
 the evidence recovery above; "unknown" alone is not an explanation.
 

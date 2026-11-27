@@ -175,7 +175,7 @@ func TestNativeRunEvidenceRejectsVerifiedOtherObservation(t *testing.T) {
 	defer s.Close()
 	workID := seedNativeRunFixture(t, s)
 	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
-	const observationID = "xobs:0123456789abcdef"
+	const observationID = "xobs:fedcba9876543210"
 	policy := PolicyRef(mustPolicy(t, "environment"))
 	capture := ExternalObservationCapture{
 		ObservationID: observationID, SubjectKind: "environment", SubjectRef: "environment://example",

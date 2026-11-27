@@ -314,13 +314,17 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
         if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs) or refs != sorted(refs):
             fail(f"workflow action contract projection {side} schema refs are not a sorted unique name list")
     teaching = projection["teaching"]
-    if set(teaching) != {"spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule", "architecture_domain_rule", "action_rules"}:
+    if set(teaching) != {"spec_mandate_rule", "architecture_domain_rule", "action_rules", "architecture_fields", "evidence_kinds", "law_modifies_rule"}:
         fail("workflow action contract projection carries no guard-owned teaching rules")
-    for rule in (value for key, value in teaching.items() if key != "action_rules"):
+    for rule in (value for key, value in teaching.items() if key not in {"action_rules", "architecture_fields", "evidence_kinds"}):
         if not isinstance(rule, str) or not rule.strip():
             fail("a guard-owned teaching rule is empty")
     if not isinstance(teaching["action_rules"], dict) or any(not isinstance(key, str) or not key or not isinstance(value, str) or not value.strip() for key, value in teaching["action_rules"].items()):
         fail("action teaching rules are invalid")
+    if not isinstance(teaching["architecture_fields"], dict) or any(not isinstance(value, str) or not value.strip() for value in teaching["architecture_fields"].values()):
+        fail("architecture field teaching is invalid")
+    if not teaching["evidence_kinds"] or len(set(teaching["evidence_kinds"])) != len(teaching["evidence_kinds"]):
+        fail("evidence kinds are invalid")
     actions = projection["actions"]
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
@@ -684,9 +688,27 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
     # projection beside the enforcing guards.
     field_teaching = {
         "spec_mandate": teaching["spec_mandate_rule"],
-        "law_additions": teaching["law_addition_mandate_rule"],
+        "law_modifies": teaching["law_modifies_rule"],
         "architecture_binding": teaching["architecture_domain_rule"],
     }
+    binding = defs["architecture_binding"]["properties"]
+    if not set(teaching["architecture_fields"]) <= set(binding):
+        fail("architecture field teaching names a field architecture_binding does not have")
+    for field, rule in teaching["architecture_fields"].items():
+        binding[field]["description"] = rule
+    # The binding field owns shared ID guidance; nested IDs retain only shape.
+    relation = binding["domain_relation_modifies"]["items"]["properties"]
+    addition = binding["law_additions"]["items"]["properties"]
+    obligation_fields = binding["verification_obligations"]["items"]["properties"]
+    ids = [binding[name]["items"] for name in ("affected_domain_ids", "domain_additions", "domain_modifies")]
+    ids += [relation["source_domain_id"], relation["target_domain_id"], addition["home_domain_id"], addition["law_id"], obligation_fields["law_id"]]
+    for node in ids:
+        node.pop("description", None)
+    # Obligations and evidence entries share the store's closed kind set.
+    defs["evidence_kind"]["enum"] = copy.deepcopy(teaching["evidence_kinds"])
+    obligation = binding["verification_obligations"]["items"]["properties"]["obligation_id"]
+    obligation.clear()
+    obligation["$ref"] = "#/$defs/evidence_kind"
     defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
     defs["clarification_answer_text"] = {"type": "string", "minLength": 1, "maxLength": 2048, "pattern": r"\S"}
@@ -766,6 +788,11 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
     guidance_names.extend(variant["schema"] for variant in public_variants if variant["action_id"] in contracts)
     guidance_names.append("workflow_contract_update")
     projected = project_schema_guidance(projected, guidance_names)
+    # The generic object sampler cannot see the distinct-endpoint guard.
+    relation = projected["$defs"]["architecture_binding"]["properties"]["domain_relation_modifies"]["items"]
+    example = {"kind": "depends_on", "source_domain_id": "a", "target_domain_id": "b"}
+    relation["examples"] = [example]
+    relation["description"] = relation["description"].split("; example:", 1)[0] + "; example: " + json.dumps(example, separators=(",", ":"), sort_keys=True)
     return projected, public_variants
 
 

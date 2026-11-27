@@ -1066,7 +1066,7 @@ func joinSchemaFailures(prefix string, failures []error, suffix ...string) error
 			message = prefix + failures[firstGuided].Error() + schemaFailureOmission(len(parts)-1)
 		}
 	}
-	var err error = errors.New(message)
+	err := errors.New(message)
 	if firstGuided >= 0 {
 		err = &guidedDiagnostic{message: message, selected: prefix == ""}
 	}

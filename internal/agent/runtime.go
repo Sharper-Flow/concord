@@ -895,12 +895,6 @@ func nonEmpty(v string) []string {
 	}
 	return []string{v}
 }
-func deref(v *string) string {
-	if v == nil {
-		return ""
-	}
-	return *v
-}
 func historyDirection(v string) string {
 	if v == "incoming" {
 		return "newest_first"

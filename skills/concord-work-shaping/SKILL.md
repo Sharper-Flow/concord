@@ -74,7 +74,8 @@ approval. Before planning closes, sweep and settle foreseeable decisions: ask
 the approval-class choices the work can reach (including existing-data repair,
 pilot or spend bounds, and UI approval points); settle file scope including
 adjacent tests, applicable checks and host limits from evidence. Reuse settled
-answers; ask later questions only about facts the work newly reveals.
+answers; ask later only at those approval points or about facts the work
+newly reveals.
 
 ### Example: decision record
 

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -94,10 +95,19 @@ func TestDomainListPaginatesCurrentDomains(t *testing.T) {
 		{"Sync", "sync"},
 	}
 	cursor := ""
+	commit := ""
 	for i, expected := range want {
 		result, err := s.QueryDomainList(context.Background(), DomainListRequest{Product: "concord", Limit: 1, Cursor: cursor})
 		if err != nil {
 			t.Fatal(err)
+		}
+		if result.Registry == nil || result.Registry.ScannedCommit == "" {
+			t.Fatalf("page %d missing scanned commit: %#v", i+1, result.Registry)
+		}
+		if i == 0 {
+			commit = result.Registry.ScannedCommit
+		} else if result.Registry.ScannedCommit != commit {
+			t.Fatalf("page %d scanned commit = %q, want %q", i+1, result.Registry.ScannedCommit, commit)
 		}
 		if len(result.Domains) != 1 || result.Domains[0].Name != expected.name || result.Domains[0].DomainID != expected.id {
 			t.Fatalf("page %d domains = %#v, want (%s, %s)", i+1, result.Domains, expected.name, expected.id)
@@ -110,6 +120,45 @@ func TestDomainListPaginatesCurrentDomains(t *testing.T) {
 		} else if result.NextCursor != nil {
 			t.Fatalf("final page has continuation cursor: %q", *result.NextCursor)
 		}
+	}
+}
+
+func TestDomainListRefusesCursorAfterRegistryCommit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := seedDomainReadStore(t)
+	first, err := s.QueryDomainList(ctx, DomainListRequest{Product: "concord", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.NextCursor == nil {
+		t.Fatal("first page missing cursor")
+	}
+	home, err := resolveKnowledgeQueryHome(ctx, s.db, "concord", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, registry, err := s.loadDomainSnapshot(ctx, "concord", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry.Domains = append(registry.Domains, KnowledgeDomain{
+		DomainID: "added", Name: "Added", Purpose: "New scope", Status: "current",
+		ParentDomainID: "product-root:concord", ArchitectureRelations: []KnowledgeArchitectureRelation{},
+	})
+	data, err := json.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKnowledgeFile(t, home.RepoPath, ".concord/docs/knowledge/domain-registry.json", string(data)+"\n")
+	commitKnowledgeRepo(t, home.RepoPath, "add Domain")
+	result, err := s.QueryDomainList(ctx, DomainListRequest{Product: "concord", Limit: 1, Cursor: *first.NextCursor})
+	if err == nil {
+		t.Fatalf("continuation after registry commit succeeded: %#v", result)
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidCursor || failure.RecoveryAction != "restart_query" {
+		t.Fatalf("failure = %#v, want invalid_cursor with restart_query", err)
 	}
 }
 

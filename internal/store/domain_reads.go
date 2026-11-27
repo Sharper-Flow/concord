@@ -202,9 +202,12 @@ func queryDomainList(req DomainListRequest, snapshot *lawFolderSnapshot, committ
 	if limit < 1 || limit > domainListMaxLimit {
 		return out, newFailure(KindInvalidFilter, "C22.DomainList", "Domain list limit is out of bounds", false, "use a limit between 1 and 100")
 	}
-	cursorName, cursorID, err := decodeDomainCursor(req.Cursor)
+	cursorName, cursorID, cursorCommit, err := decodeDomainCursor(req.Cursor)
 	if err != nil {
 		return out, err
+	}
+	if req.Cursor != "" && cursorCommit != snapshot.CommitOID() {
+		return out, newFailure(KindInvalidCursor, "C22.DomainList", "Domain registry commit changed since the first page", false, "restart_query")
 	}
 	current := currentSnapshotDomains(committed)
 	sort.Slice(current, func(i, j int) bool {
@@ -227,7 +230,7 @@ func queryDomainList(req DomainListRequest, snapshot *lawFolderSnapshot, committ
 	if len(out.Domains) > limit {
 		out.Domains = out.Domains[:limit]
 		last := out.Domains[len(out.Domains)-1]
-		next := encodeDomainCursor(last.Name, last.DomainID)
+		next := encodeDomainCursor(last.Name, last.DomainID, snapshot.CommitOID())
 		out.NextCursor = &next
 	}
 	out.Registry = registry
@@ -248,23 +251,23 @@ func currentSnapshotDomains(registry KnowledgeDomainRegistry) []DomainSummary {
 	return out
 }
 
-func decodeDomainCursor(cursor string) (string, string, error) {
+func decodeDomainCursor(cursor string) (string, string, string, error) {
 	if cursor == "" {
-		return "", "", nil
+		return "", "", "", nil
 	}
 	raw, err := base64.StdEncoding.DecodeString(cursor)
 	if err != nil {
-		return "", "", newFailure(KindInvalidFilter, "C22", "Domain cursor is malformed", false, "continue from the previous page cursor")
+		return "", "", "", newFailure(KindInvalidFilter, "C22", "Domain cursor is malformed", false, "continue from the previous page cursor")
 	}
-	parts := strings.SplitN(string(raw), "\x1f", 2)
-	if len(parts) != 2 {
-		return "", "", newFailure(KindInvalidFilter, "C22", "Domain cursor is malformed", false, "continue from the previous page cursor")
+	parts := strings.Split(string(raw), "\x1f")
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", "", newFailure(KindInvalidFilter, "C22", "Domain cursor is malformed", false, "continue from the previous page cursor")
 	}
-	return parts[0], parts[1], nil
+	return parts[0], parts[1], parts[2], nil
 }
 
-func encodeDomainCursor(name, id string) string {
-	return base64.StdEncoding.EncodeToString([]byte(name + "\x1f" + id))
+func encodeDomainCursor(name, id, commit string) string {
+	return base64.StdEncoding.EncodeToString([]byte(name + "\x1f" + id + "\x1f" + commit))
 }
 
 // QueryDomainDetail returns one Domain with its current law page and typed

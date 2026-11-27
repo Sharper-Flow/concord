@@ -165,6 +165,61 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 	}
 }
 
+func TestNativeRunEvidenceRejectsVerifiedOtherObservation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := Open(ctx, t.TempDir()+"/concord.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	workID := seedNativeRunFixture(t, s)
+	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	const observationID = "xobs:fedcba9876543210"
+	policy := PolicyRef(mustPolicy(t, "environment"))
+	capture := ExternalObservationCapture{
+		ObservationID: observationID, SubjectKind: "environment", SubjectRef: "environment://example",
+		CaptureMethod: CaptureTrustedClientReport, CapturedAt: "2026-08-20T12:00:00Z",
+		ReportingAuthorityRef: "client:reporter-1",
+		ObservedUniverse:      ObservedUniverse{Shape: UniverseItem, AppliedScope: "environment", Coverage: CoverageUnknown, TotalKind: TotalUnknown, CanonicalIdentityKey: "name"},
+		FreshnessPolicyRef:    policy, DivergencePolicyRef: policy,
+	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return appendExternalObservationCaptureTx(ctx, tx, workID, "principal-1", now, capture)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return appendExternalObservationVerificationTx(ctx, tx, workID, "principal-1", now.Add(time.Minute), ExternalObservationVerification{
+			ObservationID: observationID, VerificationMethod: VerifyTrustedClientReport,
+			VerifiedAt: "2026-08-20T12:01:00Z", VerifyingAuthorityRef: "client:verifier-1", Result: VerificationMatched,
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if row := readExternalObservationProjection(t, s, workID, observationID); row.state != string(VerificationVerified) {
+		t.Fatalf("observation state = %s, want verified", row.state)
+	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		_, execErr := tx.tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,result_kind,evidence_refs) VALUES('op:producer',1,?,'workflow.ops_runbook',?,'execute','internal_sqlite','sha256:'+?,'{}','principal-1','req-1','2026-08-20T12:00:00Z','sha256:'+?,'completed',?)`, workID, testManifestDigest, repeatHex("b"), repeatHex("c"), workflowJSON([]string{observationID}))
+		return execErr
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err = s.Transact(ctx, func(tx *Transaction) error {
+		_, bindErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{workflowTypedEvent("op:bind-other", WorkflowEvidenceBound, workID, "actor:1", now.Add(2*time.Minute), 2, map[string]any{
+			"evidence_kind": "native_run", "immutable_subject_ref": observationID,
+			"producer_id": "principal-1", "producer_run_ref": "op:producer", "producer_watermark": "req-1",
+			"observed_at": "2026-08-20T12:00:30Z",
+		})}}, newWriteScope(tx.tx))
+		return bindErr
+	})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
+		t.Fatalf("binding verified environment observation as native_run: got %v, want KindMissingEvidence", err)
+	}
+}
+
 func readNativeRuns(t *testing.T, s *Store, workID string) []NativeRunReport {
 	t.Helper()
 	ctx := context.Background()

@@ -144,6 +144,79 @@ func TestInvokeContractRequestCorrection(t *testing.T) {
 	}
 }
 
+func TestObligationKindRefusalGuidesCorrection(t *testing.T) {
+	const acceptedKinds = "verification, review, approval, commit, durable_note, native_run, artifact"
+	for _, test := range []struct{ name, obligationID, wantQuoted string }{
+		{"unknown kind", "unknown_evidence_kind", `refused obligation_id: "unknown_evidence_kind"`},
+		// 256 control characters pass the byte bound and the trim guard, and
+		// %q quotes each as four bytes, so the quoted ID alone overruns the
+		// message cap.
+		{"control characters at the bound", strings.Repeat("\x01", 256), `refused obligation_id: "\x01`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+			setWorkflowFixtureHomeOn(t, s)
+			home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			commitAgentFixtureLaw(t, home.RepoPath, ".concord/law/decisions/CD-0002-fixture-obligation.md",
+				agentFixtureLawFrontmatter("CD-0002", pm1fixture.FixtureRootDomainID, "The fixture registry has no child Domain."))
+			env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
+			workID := captureCompositionWork(t, ctx, s, service, env, "Correct obligation kind", "task", "workflow.implementation", "obligation-capture")
+			version := advanceCapturedWorkToContract(t, s, service, env, workID, "obligation")
+			fields := workflowContractFieldsForSeededRegistry(t, s)
+			fields["spec_mandate"] = []string{"CD-0002"}
+			binding := fields["architecture_binding"].(map[string]any)
+			obligation := map[string]any{"law_id": "CD-0002", "obligation_id": test.obligationID}
+			binding["verification_obligations"] = []map[string]any{obligation}
+			input := map[string]any{"work_id": workID, "expected_version": version, "action_id": "approve_contract", "fields": fields, "idempotency_key": "obligation-correction"}
+			invoke := func() agentcontract.Envelope {
+				t.Helper()
+				raw, err := json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return response
+			}
+			before := contractRequestCorrectionState(t, s, workID)
+			refused := invoke()
+			if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
+				t.Fatalf("expected refusal: %+v", refused)
+			}
+			if after := contractRequestCorrectionState(t, s, workID); !reflect.DeepEqual(before, after) {
+				t.Fatalf("refusal changed durable state: before=%v after=%v", before, after)
+			}
+			if refused.Error.Kind != "invalid_input" || refused.Error.RecoveryAction.Kind != "correct_request" || refused.Error.EffectState != agentcontract.EffectNone || refused.Error.RetrySafe {
+				t.Errorf("unexpected refusal classification: %+v", refused.Error)
+			}
+			message := refused.Error.Message
+			t.Logf("refusal message (%d bytes): %q", len(message), message)
+			if len(message) > 1000 {
+				t.Errorf("refusal message is %d bytes, over the 1000-byte cap", len(message))
+			}
+			if strings.Count(message, "accepted kinds:") != 1 || !strings.Contains(message, "accepted kinds: "+acceptedKinds+";") {
+				t.Errorf("refusal message does not name the accepted kinds exactly once: %s", message)
+			}
+			if !strings.Contains(message, test.wantQuoted) {
+				t.Errorf("refusal message does not name the refused ID with %q: %s", test.wantQuoted, message)
+			}
+			obligation["obligation_id"] = "verification"
+			if corrected := invoke(); corrected.Outcome != agentcontract.OutcomeOK {
+				t.Fatalf("corrected request was not admitted: %+v", corrected.Error)
+			}
+			if workVersion(t, s, workID) <= version || usedCount(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID) != 1 {
+				t.Fatal("corrected request did not commit exactly one contract and advance work")
+			}
+		})
+	}
+}
+
 func TestMandateRefusalGuidesCorrection(t *testing.T) {
 	for _, test := range []struct{ name, mandate string }{
 		{"path", ".concord/law/decisions/CD-0001.md"},

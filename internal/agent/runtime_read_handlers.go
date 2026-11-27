@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -386,13 +385,6 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 		response, err := r.resultEnvelope(base, result.ResultMeta, store.NewDomainListPayload(result))
 		if err != nil {
 			return response, err
-		}
-		if response.NextCursor != nil {
-			revision, err := r.Store.Revision(ctx)
-			if err != nil {
-				return failureEnvelope(base, err), nil
-			}
-			response.CursorSource = strconv.FormatInt(revision, 10)
 		}
 		return r.wrapCursor(ctx, response, binding, "domains")
 	case "detail":

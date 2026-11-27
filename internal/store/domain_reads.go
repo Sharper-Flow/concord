@@ -174,11 +174,22 @@ func (s *Store) QueryDomainList(ctx context.Context, req DomainListRequest) (Dom
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C22.DomainList", "store is not open", false, "open a store before reading Domains")
 	}
+	// Read the watermark before the home resolves, so a write between the two
+	// leaves the continuation cursor stale rather than vouching for unseen state.
+	watermark, err := storeRevision(ctx, s.db)
+	if err != nil {
+		return out, err
+	}
 	snapshot, committed, err := s.loadDomainSnapshot(ctx, req.Product, "C22.DomainList")
 	if err != nil {
 		return out, err
 	}
-	return queryDomainList(req, snapshot, committed)
+	out, err = queryDomainList(req, snapshot, committed)
+	if err != nil {
+		return out, err
+	}
+	out.SourceVersionWatermark = watermark
+	return out, nil
 }
 
 func queryDomainList(req DomainListRequest, snapshot *lawFolderSnapshot, committed KnowledgeDomainRegistry) (DomainListResult, error) {

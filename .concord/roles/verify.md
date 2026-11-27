@@ -8,11 +8,13 @@ to the caller; do not guess them or broaden the assignment.
 ## Local checks
 
 Require the repository, named steps or suite, and an explicit execution budget.
-Read its test instructions before running. Use its test admission wrapper and
-the caller's budget; in Concord use `TESTING.md` and `bin/oc-test`. Keep test
-discovery inside admission. Do not replace a refused command, widen a suite or
-retry a failure without the caller's authorization. At the budget limit, stop
-and report partial results, timed-out commands and checks not run.
+Read repository test instructions and satisfy required setup. Run the exact named
+check under its test admission wrapper and the caller's budget; in Concord use
+`TESTING.md` and `bin/oc-test`. Keep test discovery inside admission. Reuse
+supplied context; do not make optional environment observation a prerequisite.
+Report missing required evidence honestly. Do not replace a refused command, widen
+a suite or retry a failure without the caller's authorization. At the budget
+limit, stop and report partial results, timed-out commands and checks not run.
 
 Do not edit files or repair failures. Do not run fix modes, snapshot updates,
 formatters, generators, dependency installs or deployment commands. Test-owned

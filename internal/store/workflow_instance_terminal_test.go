@@ -99,11 +99,7 @@ func TestWorkflowCompleteMovesBlockedInstanceToCompleted(t *testing.T) {
 	assertWorkflowInstanceState(t, s, workID, "completed")
 }
 
-// A work item that reaches a terminal lifecycle closes its workflow instance
-// in the same fold. Cancelled and superseded mirror the lifecycle. A completed
-// target whose workflow instance still runs is refused (CD-0183 D4): the
-// lifecycle cannot bypass the workflow's completion gate, whose remedy names
-// the workflow_action complete action.
+// Cancelling a work item closes its workflow instance in the same fold.
 func TestTerminalLifecycleClosesTheWorkflowInstance(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

@@ -12,9 +12,7 @@ import (
 // The per-ActionID event constructors behind workflowSemanticActionEvents.
 // Each holds one action's own validation and event assembly; the dispatch in
 // workflow_dispatch.go keeps the case labels so the declared EventShape stays
-// structurally pinned to this surface (workflow_event_shape_test.go). The
-// design validation and correction assembly they call live in
-// workflow_design.go.
+// structurally pinned to this surface (workflow_event_shape_test.go).
 
 // workflowContractProductGuard enforces the Product-truth boundary the
 // initial approval and ordinary contract updates share: the architecture

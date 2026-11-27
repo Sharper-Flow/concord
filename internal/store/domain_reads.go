@@ -220,7 +220,6 @@ func queryDomainList(req DomainListRequest, snapshot *lawFolderSnapshot, committ
 		out.NextCursor = &next
 	}
 	out.Registry = registry
-	out.ResultMeta = ResultMeta{}
 	return out, nil
 }
 

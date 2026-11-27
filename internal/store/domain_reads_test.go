@@ -86,6 +86,33 @@ func TestDomainListCoversCurrentDomainsWithRegistryWatermark(t *testing.T) {
 	assertFailureKind(t, err, KindUnknownScope)
 }
 
+func TestDomainListPaginatesCurrentDomains(t *testing.T) {
+	t.Parallel()
+	s := seedDomainReadStore(t)
+	want := []struct{ name, id string }{
+		{"Concord", "product-root:concord"},
+		{"Sync", "sync"},
+	}
+	cursor := ""
+	for i, expected := range want {
+		result, err := s.QueryDomainList(context.Background(), DomainListRequest{Product: "concord", Limit: 1, Cursor: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Domains) != 1 || result.Domains[0].Name != expected.name || result.Domains[0].DomainID != expected.id {
+			t.Fatalf("page %d domains = %#v, want (%s, %s)", i+1, result.Domains, expected.name, expected.id)
+		}
+		if i < len(want)-1 {
+			if result.NextCursor == nil || *result.NextCursor == "" {
+				t.Fatalf("page %d missing continuation cursor", i+1)
+			}
+			cursor = *result.NextCursor
+		} else if result.NextCursor != nil {
+			t.Fatalf("final page has continuation cursor: %q", *result.NextCursor)
+		}
+	}
+}
+
 func TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

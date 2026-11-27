@@ -70,7 +70,12 @@ rule. Record question resolutions or
 the explicit result that no operator questions remain. Running the step is
 mandatory where the plan carries it; asking is not. Clarify settles what to
 build and grants no blanket implementation or UI/UX
-approval. Reuse settled answers; ask later questions where they arise.
+approval. Before planning closes, sweep and settle foreseeable decisions: ask
+the approval-class choices the work can reach (including existing-data repair,
+pilot or spend bounds, and UI approval points); settle file scope including
+adjacent tests, applicable checks and host limits from evidence. Reuse settled
+answers; ask later only at those approval points or about facts the work
+newly reveals.
 
 ### Example: decision record
 
@@ -87,7 +92,7 @@ checkable end state, and six-part plan. Diagnose unproven defect causes first.
 1. **Outcomes and checks:** each independent result, done condition, evidence, and dependencies.
 2. **Approach:** map each mechanism to its outcome, what fails without it, and the simpler alternative. Omit unmatched mechanism.
 3. **Decisions:** choices, reasons, rejected options; operator-reserved choices with class or reservation, consequence, and approval or question. Record none when none apply.
-4. **Touches:** files, interfaces, and law affected.
+4. **Touches:** derive affected files, interfaces, and law by tracing the outcome through every layer the affected party reaches. For each changed symbol account for its callers and readers; on removal, identify what loses its last caller. Name the repository checks the diff triggers.
 5. **Merge split:** small green merges; explain an inseparable cutover. Temporary coexistence needs a current requirement and retirement outcome.
 6. **Risks:** material uncertainties, failure modes, and how they will be checked.
 

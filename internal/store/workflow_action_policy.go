@@ -131,18 +131,6 @@ func validEvidence(value EvidenceKind) bool {
 	return slices.Contains(evidenceStrings(workflowEvidenceKinds), string(value))
 }
 
-func sameStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for _, x := range b {
-		if !slices.Contains(a, x) {
-			return false
-		}
-	}
-	return true
-}
-
 // ActionEventShape names which event a completed action appends. The shape is a
 // property of the action, but applyWorkflowActionRawTx decides it from three
 // separate pieces of control flow — the ActionCheckpoint branch, the "complete"

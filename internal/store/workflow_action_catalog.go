@@ -25,13 +25,6 @@ func withClosedPayload(fields func() []WorkflowPayloadField) workflowActionRevis
 	}
 }
 
-func withAppendedPayloadField(field func() WorkflowPayloadField) workflowActionRevision {
-	return func(action WorkflowActionDefinition) WorkflowActionDefinition {
-		action.Payload.Fields = append(slices.Clone(action.Payload.Fields), field())
-		return action
-	}
-}
-
 // workflowActionCatalog owns each action contract once: an
 // action's definition is its policy-table base with the catalog's revisions
 // for it applied in order. Workflow steps name action IDs whose definitions

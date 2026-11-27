@@ -100,19 +100,17 @@
       "state": "out_of_scope",
       "functions": [
         "internal/store.WorkflowPlanActionContract",
-        "internal/store.WorkflowPlanContractUpdatePayload",
-        "internal/store.workflowProjectionInvariant"
+        "internal/store.WorkflowPlanContractUpdatePayload"
       ],
-      "reason": "These helpers are the contract generator's projection surface and retained typed validators exercised by store conformance and review-admission tests through package seams the CLI does not reach."
+      "reason": "The contract generator and store tests use these projection helpers; the analysis roots ./cmd/... and cannot see those callers."
     },
     {
       "id": "plan-cutover-test-only-store-helpers",
       "state": "out_of_scope",
       "functions": [
-        "internal/store.sameStrings",
         "internal/store.validActionExecutionMode"
       ],
-      "reason": "Retired definition-era helpers whose only remaining callers are internal/store white-box tests asserting the retired binary-compatibility, runtime-writer and acceptance-deliverable refusal text; the tests pin the closed error vocabulary. They ride the CON-1574 cutover and leave with their tests."
+      "reason": "The store execution-mode test checks the policy table using validActionExecutionMode; production code does not call it."
     }
   ]
 }

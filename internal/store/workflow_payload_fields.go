@@ -7,17 +7,10 @@ func nonNilStrings(values []string) []string {
 	return values
 }
 
-var (
-	confirmPremisePayload  = withClosedPayload(confirmPremiseActionFields)
-	openFindingsCorrection = withAppendedPayloadField(workflowOpenFindingsCorrectionField)
-)
+var confirmPremisePayload = withClosedPayload(confirmPremiseActionFields)
 
 func confirmPremiseActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionContractVersionField(false),
 	}
-}
-
-func workflowOpenFindingsCorrectionField() WorkflowPayloadField {
-	return actionIDListField("open_finding_ids", false, 1, 32)
 }

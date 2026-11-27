@@ -16,10 +16,6 @@ var knowledgeHomePairTables = []string{
 	"archived_work",
 }
 
-// knowledgeLocatorDeleteGuardName is the baseline trigger that refuses
-// removing a Project locator Git-derived knowledge still references.
-const knowledgeLocatorDeleteGuardName = "project_locators_referenced_by_knowledge_no_delete"
-
 // locatorReferencedByKnowledge reports whether any Git-derived knowledge row
 // still names the Project/locator pair. Locators are stable identity (PM6
 // section 7); a removal that strands historical notes or law records is

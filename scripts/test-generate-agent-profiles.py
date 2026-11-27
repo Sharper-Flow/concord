@@ -179,7 +179,8 @@ class ProfileTests(unittest.TestCase):
                 self.assertEqual(text.count(generator.STEP_HELPER_BOUNDARY), 1)
                 for clause in ("Command-text restrictions are hygiene, not a sandbox",
                                "do not use the CLI, a direct store connection, a wrapper, or a connected service to bypass your boundaries",
-                               "Prefer file tools for repository reads, especially .concord paths, before running a command",
+                               "Start with the first necessary assigned action or required setup; omit incidental preflight",
+                               "Use file tools for necessary repository reads, especially .concord paths",
                                "When a command is refused, including a host permission denial or an admission failure, stop the whole task",
                                "return the exact command and refusal to the caller",
                                "An admitted command that fails normally is not a refusal",
@@ -377,6 +378,12 @@ class ProfileTests(unittest.TestCase):
                        "matches a linked record", "explicitly unknown", "exit codes", "unexpected changed paths",
                        "A Task result is not a workflow transition or an evidence\nbinding"):
             self.assertIn(clause, text)
+        normalized = " ".join(text.split())
+        for clause in ("Read repository test instructions and satisfy required setup",
+                       "Run the exact named check under its test admission wrapper and the caller's budget",
+                       "Reuse supplied context; do not make optional environment observation a prerequisite",
+                       "Report missing required evidence honestly"):
+            self.assertIn(clause, normalized)
 
     def test_verifier_effective_permissions_preserve_host_denies_and_caller_owned_waits(self):
         frontmatter = checks.split_frontmatter(generator.primary_projection(self.verifier(), "Role\n"))

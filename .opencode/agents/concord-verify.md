@@ -66,11 +66,13 @@ to the caller; do not guess them or broaden the assignment.
 ## Local checks
 
 Require the repository, named steps or suite, and an explicit execution budget.
-Read its test instructions before running. Use its test admission wrapper and
-the caller's budget; in Concord use `TESTING.md` and `bin/oc-test`. Keep test
-discovery inside admission. Do not replace a refused command, widen a suite or
-retry a failure without the caller's authorization. At the budget limit, stop
-and report partial results, timed-out commands and checks not run.
+Read repository test instructions and satisfy required setup. Run the exact named
+check under its test admission wrapper and the caller's budget; in Concord use
+`TESTING.md` and `bin/oc-test`. Keep test discovery inside admission. Reuse
+supplied context; do not make optional environment observation a prerequisite.
+Report missing required evidence honestly. Do not replace a refused command, widen
+a suite or retry a failure without the caller's authorization. At the budget
+limit, stop and report partial results, timed-out commands and checks not run.
 
 Do not edit files or repair failures. Do not run fix modes, snapshot updates,
 formatters, generators, dependency installs or deployment commands. Test-owned
@@ -115,8 +117,9 @@ When you delegate to a utility, wait for its completed report before returning
 your result; an idle report with child work still running is progress. Never
 poll or sleep; you may end your turn, and the host wakes you with the next report.
 
-Prefer file tools for repository reads, especially .concord paths, before running
-a command. When a command is refused, including a host permission denial or an
+Start with the first necessary assigned action or required setup; omit incidental
+preflight. Use file tools for necessary repository reads, especially .concord
+paths. When a command is refused, including a host permission denial or an
 admission failure, stop the whole task and return the exact command and refusal
 to the caller. Never retry, rewrite, repackage, or split the refused command, or
 switch tools to pursue the refused purpose. An admitted command that fails

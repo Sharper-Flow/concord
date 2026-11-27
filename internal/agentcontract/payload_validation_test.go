@@ -1,7 +1,9 @@
 package agentcontract_test
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -162,6 +164,46 @@ func TestValidateOperationPayloadPreservesSelectedGuidance(t *testing.T) {
 				t.Fatalf("refusal lost schema teaching: %v", err)
 			}
 		})
+	}
+}
+
+func TestWorkflowUnknownMemberGuidance(t *testing.T) {
+	for _, tc := range []struct {
+		action, fields, want string
+	}{
+		{"record_conclusion", `{"note":"x"}`, "accepts no properties"},
+		{"pick_type", `{"type":"fix","reason":"because","note":"x"}`, "accepted properties: reason, type"},
+		{"record_delivery", `{"note":"x"}`, "accepted properties:"},
+		{"complete_step", `{"step_id":"step-1","notes":"x"}`, "accepted properties:"},
+		{"confirm_premise", `{"premise":"x"}`, "accepted properties:"},
+	} {
+		t.Run(tc.action+tc.fields, func(t *testing.T) {
+			payload := `{"work_id":"work-1","expected_version":1,"action_id":"` + tc.action + `","idempotency_key":"key-1","fields":` + tc.fields + `}`
+			err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", []byte(payload), false)
+			if err == nil {
+				t.Fatal("unknown member accepted")
+			}
+			t.Logf("refusal: %s", err)
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("refusal missing %q", tc.want)
+			}
+		})
+	}
+}
+
+func TestWorkflowLongUnknownMemberPreservesGuidance(t *testing.T) {
+	key := strings.Repeat("界", 500)
+	validate := func(fields string) error {
+		payload := `{"work_id":"work-1","expected_version":1,"action_id":"pick_type","idempotency_key":"key-1","fields":` + fields + `}`
+		return agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", []byte(payload), false)
+	}
+	err := validate(`{"` + key + `":"x"}`)
+	want := fmt.Sprintf("unknown property at $.fields: member name sha256:%x (1500 UTF-8 bytes); accepted properties: reason, type", sha256.Sum256([]byte(key)))
+	if err == nil || len(err.Error()) > 1000 || !strings.Contains(err.Error(), want) {
+		t.Fatalf("refusal = %v, want a bounded refusal containing %q", err, want)
+	}
+	if err := validate(`{"type":"fix","reason":"because"}`); err != nil {
+		t.Fatalf("corrected payload refused: %v", err)
 	}
 }
 

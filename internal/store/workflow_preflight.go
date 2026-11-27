@@ -472,7 +472,7 @@ func workflowPlanActionOwnerTx(ctx context.Context, tx *sql.Tx, workID, actionID
 		owner = workflowPlanDeclaringStep(plan, actionID)
 	}
 	if owner == "" {
-		return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action is not declared on a frontier step", false, "reread the workflow plan")
+		return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action is not declared on a frontier step", false, workflowFrontierRemedy(plan))
 	}
 	records, err := workflowCurrentRecords(ctx, tx, workID)
 	if err != nil {
@@ -517,9 +517,70 @@ func workflowPlanStepAttemptAdmission(plan *WorkflowStepPlan, step, actionID str
 		return newFailure(KindIllegalLifecycleTransition, "workflow_action", "step is not a frontier or completed step", false, "reread the workflow plan")
 	}
 	if actionID == "record_review" && !item.Reviewed {
-		return newFailure(KindIllegalLifecycleTransition, "workflow_action", "step does not require review", false, "record review only for a reviewed step")
+		return newFailure(KindIllegalLifecycleTransition, "workflow_action", "step does not require review", false, workflowUnreviewedStepRemedy(item))
 	}
 	return nil
+}
+
+// workflowRemedyBudget bounds one refusal remedy in bytes. The agent
+// boundary keeps at most 1000 bytes of a remedy whole and marks a longer one
+// cut, so a remedy that lists the frontier renders inside this budget and
+// counts what it leaves out.
+const workflowRemedyBudget = 1000
+
+const (
+	workflowFrontierRemedyHead  = "resend an action the current frontier declares: "
+	workflowFrontierRemedyTail  = "; naming an action is not its admission: its payload, prerequisites and actor rules still apply"
+	workflowFrontierOmittedNote = "; frontier steps not listed: %d; read next_steps from concord_work_trace.resume"
+)
+
+// workflowFrontierRemedy names what the current frontier declares. Steps and
+// their actions keep plan and template order, so one plan yields one text. A
+// step is listed whole or not at all, the first is always listed, and the
+// steps left out are counted. An empty frontier names no step action.
+func workflowFrontierRemedy(plan *WorkflowStepPlan) string {
+	if plan == nil {
+		return "the workflow has no plan, so no frontier step declares an action; reread the workflow plan"
+	}
+	frontier := WorkflowStepPlanFrontier(*plan)
+	if len(frontier) == 0 {
+		if WorkflowStepPlanComplete(*plan) {
+			return "every plan step is complete, so no frontier step declares an action; reread the workflow plan"
+		}
+		return "no plan step is on the frontier, so no frontier step declares an action; reread the workflow plan"
+	}
+	var remedy strings.Builder
+	remedy.WriteString(workflowFrontierRemedyHead)
+	for index, candidate := range frontier {
+		entry := candidate.ID + " (" + strings.Join(workflowPlanStepActions(plan, candidate), ", ") + ")"
+		if index > 0 {
+			entry = ", " + entry
+		}
+		// Room stays for the count a later stop would add.
+		reserve := 0
+		if later := len(frontier) - index - 1; later > 0 {
+			reserve = len(fmt.Sprintf(workflowFrontierOmittedNote, later))
+		}
+		if index > 0 && remedy.Len()+len(entry)+reserve+len(workflowFrontierRemedyTail) > workflowRemedyBudget {
+			return remedy.String() + fmt.Sprintf(workflowFrontierOmittedNote, len(frontier)-index) + workflowFrontierRemedyTail
+		}
+		remedy.WriteString(entry)
+	}
+	return remedy.String() + workflowFrontierRemedyTail
+}
+
+// workflowUnreviewedStepRemedy answers a review record sent to a step that
+// needs none. Admission has already placed the step on the frontier or among
+// completed steps, and an unreviewed step with an attempt never reopens, so
+// a step without attempts is completed without review fields and one with
+// attempts needs nothing. A caller that wants to record a review reads
+// steps[].reviewed from the resume read to find a reviewed step.
+func workflowUnreviewedStepRemedy(step WorkflowPlanStep) string {
+	const findReviewed = "to record a review, target a reviewed step: read steps[].reviewed from concord_work_trace.resume"
+	if len(step.Attempts) == 0 {
+		return fmt.Sprintf("step %q does not require review: record its completion with complete_step, supplying step_id %q and note, and omit reviewer, result, commit, and link; the step's other completion prerequisites still apply; %s", step.ID, step.ID, findReviewed)
+	}
+	return fmt.Sprintf("step %q is complete and requires no review; %s", step.ID, findReviewed)
 }
 
 func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, request WorkflowActionPreflightRequest) (WorkflowActionDefinition, error) {

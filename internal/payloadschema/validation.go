@@ -615,10 +615,10 @@ func validateValueKeywords(value any, schema map[string]any, path string) error 
 // validateObjectKeywords enforces the object keywords at one instance path.
 // The structural scan collects every missing required field and, when
 // additionalProperties is false, every undeclared key, and returns one
-// refusal that names them all: missing fields in declared order, then
-// undeclared keys sorted by name. Each segment keeps the per-field message
-// callers match. Value keywords keep stop-at-first behavior, visit map
-// keys in lexical order, and run only after the structure is complete.
+// refusal: missing fields in declared order, then undeclared keys sorted by
+// name. A bounded refusal counts whole segments that do not fit. Value keywords
+// keep stop-at-first behavior, visit map keys in lexical order, and run only
+// after the structure is complete.
 func validateObjectKeywords(object map[string]any, schema map[string]any, root map[string]any, path string) (map[string]bool, error) {
 	evaluated := map[string]bool{}
 	properties, _ := schema["properties"].(map[string]any)
@@ -675,8 +675,8 @@ func validateObjectFieldset(object, schema, properties, patterns map[string]any,
 			unknown = append(unknown, key)
 		}
 		sort.Strings(unknown)
-		for _, key := range unknown {
-			segments = append(segments, unknownPropertyError(path, key, schema))
+		for i, key := range unknown {
+			segments = append(segments, unknownPropertyError(path, key, schema, i == 0))
 		}
 	}
 	if len(segments) > 0 {

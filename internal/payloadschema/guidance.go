@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"regexp"
 	"regexp/syntax"
@@ -29,6 +30,7 @@ const (
 	guidanceSegmentMaxBytes = 700
 	guidanceDepthMax        = 24
 	guidanceShapeDepthMax   = 8
+	schemaFailureMaxBytes   = 1000
 	// Repeat expansions in synthesized patterns: a 64-hex digest expands in
 	// full, while a degenerate {100000} stays bounded.
 	guidancePatternRepeatMax = 512
@@ -982,36 +984,136 @@ func HasSelectedGuidance(err error) bool {
 	return errors.As(err, &diagnostic) && diagnostic.selected
 }
 
-func unknownPropertyError(path, key string, schema map[string]any) error {
-	message := fmt.Sprintf("unknown property %s.%s", path, key)
-	if guidanceNote(schema) != "" && len(key) > 128 {
+func unknownPropertyError(path, key string, schema map[string]any, includeMembers bool) error {
+	note := guidanceNote(schema)
+	var message string
+	if (includeMembers || note != "") && len(key) > 128 {
 		// An arbitrary member name can exceed the entire envelope. Identify it
 		// exactly by digest and length instead of cutting its path or teaching.
 		message = fmt.Sprintf("unknown property at %s: member name sha256:%x (%d UTF-8 bytes)", path, sha256.Sum256([]byte(key)), len(key))
+	} else {
+		message = fmt.Sprintf("unknown property %s.%s", path, key)
 	}
-	return withGuidance(fmt.Errorf("%s", message), schema)
+	if includeMembers {
+		// Leave room for the canonical annotation and a joined omission count.
+		budget := min(700, schemaFailureMaxBytes-len(note)-len("; ")-len(schemaFailureOmission(math.MaxInt)))
+		message = appendAcceptedMembers(message, schema, budget)
+	}
+	err := withGuidance(errors.New(message), schema)
+	if includeMembers {
+		return &memberDiagnostic{err}
+	}
+	return err
 }
 
-// joinSchemaFailures budgets whole errors, never substrings. A long guided
-// refusal keeps its first complete field/constraint/shape/example and states
-// how many other errors remain. Unguided structural messages pass through unchanged.
+func appendAcceptedMembers(message string, schema map[string]any, budget int) string {
+	properties, _ := schema["properties"].(map[string]any)
+	patterns, _ := schema["patternProperties"].(map[string]any)
+	if len(properties)+len(patterns) == 0 {
+		return message + "; accepts no properties"
+	}
+	const omission = "; accepted properties or patterns not listed: %d"
+	var out strings.Builder
+	out.WriteString(message)
+	omitted := 0
+	reserve := len(fmt.Sprintf(omission, len(properties)+len(patterns)))
+	for _, group := range []struct {
+		label string
+		items map[string]any
+	}{{"; accepted properties: ", properties}, {"; accepted property patterns: ", patterns}} {
+		separator := group.label
+		for _, item := range sortedKeys(group.items) {
+			if out.Len()+len(separator)+len(item)+reserve > budget {
+				omitted++
+				continue
+			}
+			out.WriteString(separator)
+			out.WriteString(item)
+			separator = ", "
+		}
+	}
+	if omitted > 0 {
+		out.WriteString(fmt.Sprintf(omission, omitted))
+	}
+	return out.String()
+}
+
+type memberDiagnostic struct{ error }
+
+func (d *memberDiagnostic) Unwrap() error { return d.error }
+
+// joinSchemaFailures budgets whole errors, never substrings. Canonical guidance
+// keeps priority over member lists. A member list reserves room for itself
+// without dropping other field errors that fit in the original order.
 func joinSchemaFailures(prefix string, failures []error, suffix ...string) error {
 	parts := errorStrings(failures)
 	message := prefix + strings.Join(parts, "; ") + strings.Join(suffix, "")
-	guided := false
-	for _, failure := range failures {
-		guided = guided || HasGuidance(failure)
-	}
-	if !guided {
-		return fmt.Errorf("%s", message)
-	}
-	if len(message) > 1000 {
-		for _, failure := range failures {
-			if HasGuidance(failure) {
-				message = prefix + failure.Error() + fmt.Sprintf("; %d other field or alternative error(s)", len(parts)-1)
-				break
-			}
+	firstGuided, firstMember := -1, -1
+	for i, failure := range failures {
+		if firstGuided < 0 && HasGuidance(failure) {
+			firstGuided = i
+		}
+		var member *memberDiagnostic
+		if firstMember < 0 && errors.As(failure, &member) {
+			firstMember = i
 		}
 	}
-	return &guidedDiagnostic{message: message, selected: prefix == ""}
+	if len(message) > schemaFailureMaxBytes {
+		switch {
+		case firstMember >= 0:
+			message = boundMemberFailures(prefix, failures, len(parts), firstGuided, firstMember)
+		case firstGuided >= 0:
+			message = prefix + failures[firstGuided].Error() + schemaFailureOmission(len(parts)-1)
+		}
+	}
+	err := errors.New(message)
+	if firstGuided >= 0 {
+		err = &guidedDiagnostic{message: message, selected: prefix == ""}
+	}
+	if firstMember >= 0 {
+		err = &memberDiagnostic{err}
+	}
+	return err
+}
+
+func schemaFailureOmission(count int) string {
+	return fmt.Sprintf("; %d other field or alternative error(s)", count)
+}
+
+func boundMemberFailures(prefix string, failures []error, count, guided, member int) string {
+	// Reserve whole messages before walking the original order so early
+	// failures cannot fill the space the two kinds of teaching need.
+	reserve := len(schemaFailureOmission(count))
+	if guided >= 0 && guided != member {
+		reserve += len(failures[guided].Error()) + 2
+		if len(prefix)+reserve+len(failures[member].Error())+2 > schemaFailureMaxBytes {
+			member = -1
+		}
+	}
+	if member >= 0 {
+		reserve += len(failures[member].Error()) + 2
+	}
+	var out strings.Builder
+	out.WriteString(prefix)
+	separator := ""
+	omitted := 0
+	for i, failure := range failures {
+		if failure == nil {
+			continue
+		}
+		text := failure.Error()
+		if i == guided || i == member {
+			reserve -= len(text) + 2
+		} else if out.Len()+len(separator)+len(text)+reserve > schemaFailureMaxBytes {
+			omitted++
+			continue
+		}
+		out.WriteString(separator)
+		out.WriteString(text)
+		separator = "; "
+	}
+	if omitted > 0 {
+		out.WriteString(schemaFailureOmission(omitted))
+	}
+	return out.String()
 }

@@ -536,7 +536,10 @@ func ownHomeLawAdditionIdentityID(homeProjectID, additionLawID string) string {
 func validateArchitectureBindingObligationsTx(snapshot *lawFolderSnapshot, obligations []WorkflowVerificationObligation, mandated []string) error {
 	for _, obligation := range obligations {
 		if !slices.Contains(workflowEvidenceKinds, EvidenceKind(obligation.ObligationID)) {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "verification obligation is not a declared evidence kind", false, "reference a closed evidence kind")
+			// The accepted kinds precede the caller's ID so a quoted ID that
+			// overruns the message cap truncates only itself.
+			message := fmt.Sprintf("verification obligation is not a declared evidence kind; accepted kinds: %s; refused obligation_id: %q", strings.Join(evidenceStrings(workflowEvidenceKinds), ", "), obligation.ObligationID)
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", message, false, "reference a closed evidence kind")
 		}
 		if _, ok := snapshot.Law(bareLawID(obligation.LawID)); !ok {
 			return newFailure(KindProjectionNotFound, "workflow_architecture_binding", "verification obligation names a non-current law", false, "reference a current mandated law")

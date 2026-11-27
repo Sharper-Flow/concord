@@ -2,9 +2,57 @@ package payloadschema
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
+
+func TestUnknownPropertyAcceptedMembers(t *testing.T) {
+	for _, tc := range []struct{ name, schema, value, want string }{
+		{"sorted and once", `{"type":"object","additionalProperties":false,"properties":{"zeta":{},"alpha":{}}}`, `{"bad":1,"other":2}`, "unknown property $.bad; accepted properties: alpha, zeta; unknown property $.other"},
+		{"none", `{"type":"object","additionalProperties":false,"properties":{}}`, `{"bad":1}`, "unknown property $.bad; accepts no properties"},
+		{"patterns", `{"type":"object","additionalProperties":false,"properties":{"name":{}},"patternProperties":{"^z":{},"^a":{}}}`, `{"bad":1}`, "unknown property $.bad; accepted properties: name; accepted property patterns: ^a, ^z"},
+		{"annotated", `{"type":"object","additionalProperties":false,"description":"Accepted shape: object; example: {\"primary\":\"filename\"}","properties":{"primary":{},"name":{}}}`, `{"bad":1}`, `unknown property $.bad; accepted properties: name, primary; Accepted shape: object; example: {"primary":"filename"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := decodeSchema(t, tc.schema)
+			value := decodeValue(t, tc.value)
+			for range 50 {
+				err := ValidateValue(value, root, root, "$")
+				if err == nil || err.Error() != tc.want {
+					t.Fatalf("refusal = %v, want %q", err, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestUnknownPropertyGuidanceFitsBudget(t *testing.T) {
+	root := decodeSchema(t, `{"type":"object","additionalProperties":false,"required":["beta","alpha"],"properties":{"alpha":{},"beta":{}}}`)
+	value := map[string]any{}
+	for i := range 100 {
+		value[fmt.Sprintf("unknown_%03d", i)] = true
+	}
+	err := ValidateValue(value, root, root, "$")
+	if err == nil || len(err.Error()) > 1000 ||
+		!strings.HasPrefix(err.Error(), "missing required $.beta; missing required $.alpha; unknown property $.unknown_000; accepted properties: alpha, beta; unknown property $.unknown_001") ||
+		!strings.Contains(err.Error(), "other field") {
+		t.Fatalf("budgeted refusal = %v", err)
+	}
+	if HasGuidance(err) || HasSelectedGuidance(err) {
+		t.Fatal("member guidance must not select canonical teaching")
+	}
+}
+
+func TestUnknownPropertyMemberListKeepsShortPatterns(t *testing.T) {
+	root := decodeSchema(t, `{"type":"object","additionalProperties":false,"patternProperties":{"^short":{}}}`)
+	root["properties"] = map[string]any{"alpha": map[string]any{}, strings.Repeat("z", 700): map[string]any{}}
+	err := ValidateValue(map[string]any{"bad": true}, root, root, "$")
+	want := "unknown property $.bad; accepted properties: alpha; accepted property patterns: ^short; accepted properties or patterns not listed: 1"
+	if err == nil || err.Error() != want {
+		t.Fatalf("refusal = %v, want %q", err, want)
+	}
+}
 
 // decodeSchema reads one schema document the way Validate does, so a test
 // exercises the same json.Number-bearing shapes the production path sees.
@@ -56,7 +104,7 @@ func TestComposedRefusalNamesTheOffendingFieldOnce(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unknown property under a composed schema was accepted")
 	}
-	if got := err.Error(); got != "unknown property $.fields.evidence_commit" {
+	if got := err.Error(); got != "unknown property $.fields.evidence_commit; accepted properties: evidence_ref" {
 		t.Errorf("refusal does not lead with the offending field: %s", got)
 	}
 }
@@ -75,7 +123,7 @@ func TestStructuralRefusalNamesEveryMissingAndUnknownField(t *testing.T) {
 	}`)
 	value := decodeValue(t, `{"zeta": true}`)
 
-	want := "missing required $.alpha; missing required $.beta; unknown property $.zeta"
+	want := "missing required $.alpha; missing required $.beta; unknown property $.zeta; accepted properties: alpha, beta"
 	for range 50 {
 		err := ValidateValue(value, root, root, "$")
 		if err == nil {

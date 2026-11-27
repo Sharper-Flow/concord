@@ -114,7 +114,7 @@ func TestFullWorkListProjectionContinuationAfterUnrelatedWrite(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err := r.read(ctx, base, raw, "PM1.Q3")
+		out, err := r.read(ctx, base, raw)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -171,7 +171,7 @@ func TestFullWorkListProjectionAfterInlinePageAndUnrelatedWrite(t *testing.T) {
 	read := func() agentcontract.Envelope {
 		t.Helper()
 		raw, _ := json.Marshal(input)
-		out, err := r.read(ctx, base, raw, "PM1.Q3")
+		out, err := r.read(ctx, base, raw)
 		if err != nil || out.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("list: error=%v refusal=%+v", err, out.Error)
 		}
@@ -240,7 +240,7 @@ func TestFullWorkListProjectionAfterInlinePageAndUnrelatedWrite(t *testing.T) {
 	}
 	input["page"] = map[string]any{"cursor": *fragment.NextCursor}
 	raw, _ := json.Marshal(input)
-	stale, err := r.read(ctx, base, raw, "PM1.Q3")
+	stale, err := r.read(ctx, base, raw)
 	if err != nil || stale.Error == nil || stale.Error.Kind != "invalid_cursor" || stale.Error.RecoveryAction.Kind != "restart_query" {
 		t.Fatalf("item cursor must remain revision-bound: %+v %v", stale.Error, err)
 	}
@@ -260,7 +260,7 @@ func TestFullWorkListProjectionTailLeavesBeforeFragmentCompletion(t *testing.T) 
 	read := func() agentcontract.Envelope {
 		t.Helper()
 		raw, _ := json.Marshal(input)
-		out, err := r.read(ctx, base, raw, "PM1.Q3")
+		out, err := r.read(ctx, base, raw)
 		if err != nil || out.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("list: %v %+v", err, out.Error)
 		}
@@ -313,7 +313,7 @@ func TestFullWorkListProjectionTailLeavesBeforeFragmentCompletion(t *testing.T) 
 	}
 	input["page"] = map[string]any{"cursor": *fragment.NextCursor}
 	raw, _ := json.Marshal(input)
-	stale, err := r.read(ctx, base, raw, "PM1.Q3")
+	stale, err := r.read(ctx, base, raw)
 	if err != nil || stale.Error == nil || stale.Error.Kind != "invalid_cursor" || stale.Error.RecoveryAction.Kind != "restart_query" {
 		t.Fatalf("stale item continuation: %+v %v", stale.Error, err)
 	}
@@ -325,7 +325,7 @@ func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 	s, r, base := projectionFixture(t)
 	read := func(in map[string]any) agentcontract.Envelope {
 		raw, _ := json.Marshal(in)
-		out, err := r.read(ctx, base, raw, "PM1.Q3")
+		out, err := r.read(ctx, base, raw)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -453,7 +453,7 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 	for range 16 {
 		base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 2048)}})
 	}
-	first, err := r.read(ctx, base, []byte(`{"product_id":"product-1","detail":"full","limit":1}`), "PM1.Q3")
+	first, err := r.read(ctx, base, []byte(`{"product_id":"product-1","detail":"full","limit":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +491,7 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(map[string]any{"product_id": "product-1", "detail": "full", "limit": 1, "page": map[string]any{"cursor": *malformed.NextCursor}})
-	refusal, err := r.read(ctx, base, raw, "PM1.Q3")
+	refusal, err := r.read(ctx, base, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +511,7 @@ func TestFullWorkListProjectionUnshrinkableFrameNamesProducerRepair(t *testing.T
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
 	base := agentcontract.NewBase(r.Tool, r.Operation)
 	base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 65536)}})
-	response, err := r.read(t.Context(), base, []byte(`{"product_id":"product-1","detail":"full","limit":1}`), "PM1.Q3")
+	response, err := r.read(t.Context(), base, []byte(`{"product_id":"product-1","detail":"full","limit":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +534,7 @@ func readFullListDocumentsWithBase(t *testing.T, ctx context.Context, r runtime,
 	fragments := 0
 	for pages := 0; pages < 100; pages++ {
 		raw, _ := json.Marshal(input)
-		response, err := r.read(ctx, base, raw, "PM1.Q3")
+		response, err := r.read(ctx, base, raw)
 		if err != nil {
 			t.Fatal(err)
 		}

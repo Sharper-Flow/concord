@@ -27,7 +27,7 @@ func TestPublishedExecutionAbsenceAuthorizationAndWire(t *testing.T) {
 			t.Fatalf("authorized outcome owner refused: %v", err)
 		}
 		r := runtime{Store: s, Tool: request.Tool, Operation: request.Operation, Envelope: CallEnvelope{SelectedProductID: "product-a"}}
-		response, err := r.read(ctx, agentcontract.NewBase(r.Tool, r.Operation), request.Input, "C19.Resume")
+		response, err := r.read(ctx, agentcontract.NewBase(r.Tool, r.Operation), request.Input)
 		if err != nil {
 			response = failureEnvelope(agentcontract.NewBase(r.Tool, r.Operation), err)
 		}

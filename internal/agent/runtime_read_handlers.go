@@ -355,7 +355,7 @@ func (r runtime) readTraceProjectRetirement(ctx context.Context, base agentcontr
 	return r.resultEnvelope(base, store.ResultMeta{}, retirement)
 }
 
-func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, input []byte, queryID string) (agentcontract.Envelope, error) {
+func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in domainReadInput
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
@@ -372,7 +372,13 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 	// a Product with no designated home keeps the domain read's own refusal.
 	switch r.Operation {
 	case "list":
-		result, err := r.Store.QueryDomainList(ctx, store.DomainListRequest{Product: product, Limit: effectiveLimit(in.Limit, in.Page), Cursor: deref(in.Page.Cursor)})
+		in.ProductID = product
+		binding := pageBinding(in, func(p *domainReadInput) { p.Page.Cursor = nil })
+		inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), binding, "domains")
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		result, err := r.Store.QueryDomainList(ctx, store.DomainListRequest{Product: product, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner})
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
@@ -380,7 +386,7 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 		if err != nil {
 			return response, err
 		}
-		return r.wrapCursor(ctx, response, queryID+":"+product, "domains")
+		return r.wrapCursor(ctx, response, binding, "domains")
 	case "detail":
 		if in.DomainID == "" {
 			return coreError(base, "invalid_input", "Domain detail requires domain_id", "reread_entities", false), nil

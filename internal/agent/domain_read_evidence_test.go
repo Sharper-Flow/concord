@@ -108,6 +108,56 @@ func TestAgentDomainListReturnsBoundedIdentityWithAuthorityAndCoverage(t *testin
 	}
 }
 
+func TestAgentDomainListFollowsCursor(t *testing.T) {
+	t.Parallel()
+	s, service, env := domainEvidenceFixture(t)
+	var repo string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT locator_value FROM project_locators WHERE locator_id = 'domain-evidence-locator'`).Scan(&repo); err != nil {
+		t.Fatal(err)
+	}
+	const childID = "child-domain"
+	registry := store.KnowledgeDomainRegistry{
+		SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: singleDomainRootID,
+		Domains: []store.KnowledgeDomain{
+			{DomainID: singleDomainRootID, Name: "Concord", Purpose: "Product law", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
+			{DomainID: childID, Name: "Child", Purpose: "Child work", Status: "current", ParentDomainID: singleDomainRootID, ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
+		},
+	}
+	if err := pm1fixture.WriteKnowledgeShards(repo, registry); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repo, "add", "--", ".")
+	gitRun(t, repo, "commit", "--quiet", "-m", "add child Domain")
+
+	seen := map[string]int{}
+	var cursor *string
+	for page := 0; page < 3; page++ {
+		input, err := json.Marshal(map[string]any{"product_id": "product-1", "page": map[string]any{"limit": 1, "cursor": cursor}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := domainRead(t, s, service, env, "list", string(input))
+		var payload struct {
+			Domains []store.DomainSummary `json:"domains"`
+		}
+		if err := json.Unmarshal(response.Result, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if len(payload.Domains) != 1 {
+			t.Fatalf("page %d contains %d Domains, want 1", page+1, len(payload.Domains))
+		}
+		seen[payload.Domains[0].DomainID]++
+		cursor = response.NextCursor
+		if cursor == nil {
+			if len(seen) != 2 || seen[singleDomainRootID] != 1 || seen[childID] != 1 {
+				t.Fatalf("Domain counts = %v, want each seeded Domain once", seen)
+			}
+			return
+		}
+	}
+	t.Fatalf("Domain walk did not end: counts=%v cursor=%q", seen, *cursor)
+}
+
 // Elements 2, 5 and 6: current law, its Git evidence, and decision records.
 // Only law present in the current accepted projection is returned.
 func TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence(t *testing.T) {

@@ -117,11 +117,17 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		_, applyErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{report("health", "healthy", 3)}}, newWriteScope(tx.tx))
+		return applyErr
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	// D9 gate: binding the unverified record as completion evidence fails
 	// closed, naming exactly why.
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		_, bindErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{workflowTypedEvent("op:bind-unverified", WorkflowEvidenceBound, workID, "actor:1", time.Date(2026, 8, 20, 12, 1, 0, 0, time.UTC), 3, map[string]any{
+		_, bindErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{workflowTypedEvent("op:bind-unverified", WorkflowEvidenceBound, workID, "actor:1", time.Date(2026, 8, 20, 12, 1, 0, 0, time.UTC), 4, map[string]any{
 			"evidence_kind": "native_run", "immutable_subject_ref": observationID,
 			"producer_id": "principal-1", "producer_run_ref": "op:start", "producer_watermark": "req-1",
 			"observed_at": "2026-08-20T12:00:30Z",
@@ -131,7 +137,7 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 		t.Fatal("unverified native_run evidence satisfied a completion gate")
 	} else {
 		var failure *Failure
-		if !errors.As(err, &failure) || (failure.Kind != KindStaleRequiresReview && failure.Kind != KindMissingEvidence) {
+		if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview {
 			t.Fatalf("unverified native_run evidence refused for the wrong reason: %v", err)
 		}
 	}
@@ -148,13 +154,23 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 	}
 
 	reports = readNativeRuns(t, s, workID)
-	if len(reports) != 1 || reports[0].VerificationState != string(VerificationVerified) || reports[0].Unverified {
+	if len(reports) != 2 || reports[0].VerificationState != string(VerificationVerified) || reports[0].Unverified || reports[1].VerificationState != string(VerificationVerified) || reports[1].Unverified {
 		t.Fatalf("verified observation did not reach the native report: %+v", reports)
 	}
 
-	// The gate now admits the same binding.
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		_, bindErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{workflowTypedEvent("op:bind-verified", WorkflowEvidenceBound, workID, "actor:1", time.Date(2026, 8, 20, 12, 3, 0, 0, time.UTC), 3, map[string]any{
+		_, applyErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{report("cleanup", "cleaned", 4)}}, newWriteScope(tx.tx))
+		return applyErr
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reports = readNativeRuns(t, s, workID)
+	if len(reports) != 3 || reports[0].Phase != "cleanup" || reports[0].ObservationID != observationID || !reports[0].Unverified {
+		t.Fatalf("later phase did not share the observation with an unverified phase projection: %+v", reports)
+	}
+	// The shared verified observation admits a phase reported after verification.
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		_, bindErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{workflowTypedEvent("op:bind-verified", WorkflowEvidenceBound, workID, "actor:1", time.Date(2026, 8, 20, 12, 3, 0, 0, time.UTC), 5, map[string]any{
 			"evidence_kind": "native_run", "immutable_subject_ref": observationID,
 			"producer_id": "principal-1", "producer_run_ref": "op:start", "producer_watermark": "req-1",
 			"observed_at": "2026-08-20T12:00:30Z",

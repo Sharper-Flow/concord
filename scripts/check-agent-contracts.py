@@ -243,8 +243,10 @@ def stage_host_workspace(bun: str, pin: dict, workspace: Path) -> str | None:
     # drift this manifest removes: the reviewed declarations and the installed
     # ones would coincide only until the next publish.
     specifiers = [f"{package['name']}@{package['version']}" for package in pin["packages"]]
+    # --no-cache bypasses Bun's npm manifest cache, whose expired entries can
+    # stall resolution; the install still resolves the exact pins above.
     try:
-        installed = subprocess.run([bun, "add", "--exact", *specifiers], cwd=workspace, capture_output=True, text=True, timeout=300)
+        installed = subprocess.run([bun, "add", "--exact", "--no-cache", *specifiers], cwd=workspace, capture_output=True, text=True, timeout=300)
     except (OSError, subprocess.SubprocessError) as exc:
         return f"host declarations could not be installed: {exc}"
     if installed.returncode:

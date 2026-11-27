@@ -2,10 +2,13 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 func TestBareConcordPrintsUsageWithoutAuthority(t *testing.T) {
@@ -63,5 +66,36 @@ func TestRequestInputLimitAdmitsRequestCapacity(t *testing.T) {
 	}
 	if code != 0 || !strings.Contains(out.String(), `"outcome"`) {
 		t.Fatalf("the oversized-but-bounded request never reached the core: exit=%d stdout=%q stderr=%q", code, out.String(), diagnostic.String())
+	}
+}
+
+func TestStdinReadFailuresAndLimits(t *testing.T) {
+	readError := errors.New("synthetic read failure")
+	for _, tc := range []struct {
+		name    string
+		command string
+		input   func() io.Reader
+		want    string
+	}{
+		{"invoke_read_error", "invoke", func() io.Reader {
+			return io.MultiReader(strings.NewReader("{"), iotest.ErrReader(readError))
+		}, "cannot read the request: synthetic read failure\n"},
+		{"invoke_oversize", "invoke", func() io.Reader {
+			return strings.NewReader(strings.Repeat("x", 8388609))
+		}, "input exceeds 8388608 bytes\n"},
+		{"upgrade_read_error", "upgrade", func() io.Reader {
+			return io.MultiReader(strings.NewReader("{"), iotest.ErrReader(readError))
+		}, "concord upgrade: cannot read the request: synthetic read failure\n"},
+		{"upgrade_oversize", "upgrade", func() io.Reader {
+			return strings.NewReader(strings.Repeat("x", 65537))
+		}, "concord upgrade: input exceeds 65536 bytes\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, diagnostic bytes.Buffer
+			code := runWithInput([]string{tc.command}, tc.input(), &out, &diagnostic)
+			if code != 1 || diagnostic.String() != tc.want || out.Len() != 0 {
+				t.Fatalf("exit=%d stdout=%q stderr=%q; want exit=1, empty stdout, stderr=%q", code, out.String(), diagnostic.String(), tc.want)
+			}
+		})
 	}
 }

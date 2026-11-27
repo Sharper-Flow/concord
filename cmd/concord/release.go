@@ -741,9 +741,9 @@ func decodeReleaseInput(args []string, in io.Reader, errOut io.Writer, command s
 			}
 		}
 	}
-	raw, err := io.ReadAll(io.LimitReader(in, agent.MaxEnvelopeBytes+1))
-	if err != nil || int64(len(raw)) > agent.MaxEnvelopeBytes {
-		writeOperatorDiagnostic(errOut, command, "cannot read the request")
+	raw, err := readRequest(in, agent.MaxEnvelopeBytes)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return 1
 	}
 	if len(raw) == 0 {

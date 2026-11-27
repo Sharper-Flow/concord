@@ -32,7 +32,7 @@ func TestWorkListDispatchRetainedDecisions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := r.read(context.Background(), agentcontract.NewBase(r.Tool, r.Operation), input, "PM1.Q3")
+			response, err := r.read(context.Background(), agentcontract.NewBase(r.Tool, r.Operation), input)
 			if err != nil || response.Error != nil {
 				t.Fatalf("dispatch: %+v %v", response.Error, err)
 			}
@@ -97,7 +97,7 @@ func TestWorkListDispatchItemFullNativeRun(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := r.read(context.Background(), agentcontract.NewBase(r.Tool, r.Operation), input, "PM1.Q3")
+		response, err := r.read(context.Background(), agentcontract.NewBase(r.Tool, r.Operation), input)
 		if err != nil || response.Error != nil {
 			t.Fatalf("dispatch: %+v %v", response.Error, err)
 		}

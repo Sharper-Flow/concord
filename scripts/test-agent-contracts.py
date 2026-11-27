@@ -761,6 +761,28 @@ class WriteSetCoordinationContractTests(unittest.TestCase):
                 self.assertIn(clause, " ".join((ROOT / path).read_text().split()))
 
 
+class RTEWaitContractTests(unittest.TestCase):
+    def test_waits_require_evidence_or_same_pass_unblocking_action(self):
+        text = " ".join((ROOT / ".concord/roles/rte.md").read_text().split())
+        for clause in (
+            "For every wait, verify evidence that the unblocking action is underway:",
+            "a live owner actually working on it, a relevant check or watcher running, "
+            "or a request delivered to the required actor.",
+            "A Backlog ticket or named owner alone is not evidence that the action is underway.",
+            "In the same pass, when the action is not underway",
+            "run the RTE action owed",
+            "assign a ready in-scope dependency repair to a primary in the owning repository",
+            "raise the required operator action directly once when you own raising it",
+            "Respect existing question ownership and already-presented requests, scope, "
+            "pauses, holds, refusals, and allocation and capacity rules.",
+            "If no action is admitted, report the specific gap",
+            "Every wait has evidence of its unblocking action underway or a specific unresolved gap",
+            "show the evidence of the unblocking action underway or the specific unresolved gap",
+        ):
+            with self.subTest(clause=clause):
+                self.assertIn(clause, text)
+
+
 class LinearVisualApprovalContractTests(unittest.TestCase):
     def test_asking_requires_embedded_versioned_screenshots_and_reachable_preview(self):
         text = " ".join((ROOT / ".concord/instructions/asking.md").read_text().split())
@@ -2272,6 +2294,28 @@ class StrictFailureControls(unittest.TestCase):
         self.assertIsNotNone(error)
         self.assertTrue(error.startswith("host declarations could not be installed"), error)
         self.assertIn("network unreachable", error)
+
+    def test_host_staging_ignores_expired_manifests_and_keeps_exact_pins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake_bun = Path(directory) / "bun"
+            fake_bun.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "args = sys.argv[1:]\n"
+                "if '--no-cache' not in args:\n"
+                "    sys.exit('expired manifest cache blocks resolution')\n"
+                "if args[0] != 'add' or sorted(args[1:]) != sorted(['--no-cache', '--exact', 'example@1.2.3', '@scope/host@4.5.6']):\n"
+                "    sys.exit('expected exact pinned install')\n",
+                encoding="utf-8",
+            )
+            os.chmod(fake_bun, 0o755)
+            pin = {
+                "sources": ["adapter/opencode"],
+                "compiler_options": {},
+                "packages": [{"name": "example", "version": "1.2.3"}, {"name": "@scope/host", "version": "4.5.6"}],
+            }
+            error = lane_checker.stage_host_workspace(str(fake_bun), pin, Path(directory) / "workspace")
+        self.assertIsNone(error, error)
 
     def test_host_sources_refresh_without_reinstalling_dependencies(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -95,8 +95,8 @@ your result; an idle report with child work still running is progress. Never
 poll or sleep; you may end your turn, and the host wakes you with the next report.
 
 Start with the first necessary assigned action or required setup; omit incidental
-preflight. Use file tools for necessary repository reads, especially .concord
-paths. When a command is refused, including a host permission denial or an
+preflight. Read files with `read`, `glob`, `grep`; Git reads: one plain command per call.
+When a command is refused, including a host permission denial or an
 admission failure, stop the whole task and return the exact command and refusal
 to the caller. Never retry, rewrite, repackage, or split the refused command, or
 switch tools to pursue the refused purpose. An admitted command that fails

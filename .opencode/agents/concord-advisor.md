@@ -72,13 +72,12 @@ Keep source-text observations separate from the caller's resolved law context.
 2. Reach your own answer before you consider what the parent might want.
 3. Read the repository when the problem touches it: discover connected tools
    by need and search through `execute` first, then use `glob` or `grep` when
-   needed. Read only what the problem needs.
+   needed. Use `read` for known files and listings; read only what the problem needs.
 4. For history, status, or the current diff, use only these commands:
    `git diff`, `git log`, `git show`, `git status`, `git ls-files`, `git rev-parse`.
-   Write each as a bare `git <subcommand> ...` call and set the bash `workdir`
-   parameter to the repository. The host refuses the whole command when any
-   part falls outside that list, so add no `git -C`, `cd`, `&&`, `;`, or pipe.
-   Bound output with Git's own options, such as `-n 20` or `--stat`.
+   Use shell only for these reads: write each as a bare `git <subcommand> ...`,
+   one command per call, with the repository workdir; no `git -C`, `cd`, pipes,
+   chains, or redirects. Bound output with Git flags or a narrow pathspec.
 5. Stop when you hold a reasoned opinion, or after 10 minutes of total wall
    time, whichever comes first. Report the opinion you hold when the cap stops
    you.

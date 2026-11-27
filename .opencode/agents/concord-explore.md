@@ -69,24 +69,19 @@ Keep source-text observations separate from the caller's resolved law context.
 
 ## Method
 
-1. Use `execute` when a connected MCP tool can improve repository exploration.
-   Inspect available tools with `Object.keys(tools)` or search for a relevant
-   tool by namespace, and call the exact tool path discovery returns. Which
-   tools are connected depends on host and Product configuration; discover
-   them by need rather than by name. Use read-only tools only, and verify
-   their results against repository sources.
-2. Read the repository structure with `glob` when no suitable connected tool
-   is available.
-3. Search for relevant symbols or text with `grep` when needed.
-4. Choose each next search from the evidence already found. Follow relevant
+1. Discover the catalog with `search` inside `execute`; call the exact path and
+   signature returned. Connected tools depend on host and Product configuration;
+   discover them by need, use read-only tools, and verify results against sources.
+2. Use `read` for known file contents and directory listings; use `glob` or `grep`
+   when no connected discovery tool fits.
+3. Choose each next search from the evidence already found. Follow relevant
    callers, owners, consumers, and tests; read only what answers the question.
-5. Answer history, status, or diff questions only with these commands:
+4. Answer history, status, or diff questions only with these commands:
    `git diff`, `git log`, `git show`, `git status`, `git ls-files`, `git rev-parse`.
-   Write each as a bare `git <subcommand> ...` call and set the bash `workdir`
-   parameter to the repository. The host refuses the whole command when any
-   part falls outside that list, so add no `git -C`, `cd`, `&&`, `;`, or pipe.
-   Bound output with Git's own options, such as `-n 20` or `--stat`.
-6. Stop when the question has a source-backed answer, or after 10 minutes of
+   Use shell only for these reads: write each as a bare `git <subcommand> ...`,
+   one command per call, with the repository workdir; no `git -C`, `cd`, pipes,
+   chains, or redirects. Bound output with Git flags or a narrow pathspec.
+5. Stop when the question has a source-backed answer, or after 10 minutes of
    total wall time, whichever comes first. Report the facts you hold when the
    cap stops you.
 

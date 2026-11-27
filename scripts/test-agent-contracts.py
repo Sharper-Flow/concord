@@ -2295,6 +2295,28 @@ class StrictFailureControls(unittest.TestCase):
         self.assertTrue(error.startswith("host declarations could not be installed"), error)
         self.assertIn("network unreachable", error)
 
+    def test_host_staging_ignores_expired_manifests_and_keeps_exact_pins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake_bun = Path(directory) / "bun"
+            fake_bun.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "args = sys.argv[1:]\n"
+                "if '--no-cache' not in args:\n"
+                "    sys.exit('expired manifest cache blocks resolution')\n"
+                "if args[0] != 'add' or sorted(args[1:]) != sorted(['--no-cache', '--exact', 'example@1.2.3', '@scope/host@4.5.6']):\n"
+                "    sys.exit('expected exact pinned install')\n",
+                encoding="utf-8",
+            )
+            os.chmod(fake_bun, 0o755)
+            pin = {
+                "sources": ["adapter/opencode"],
+                "compiler_options": {},
+                "packages": [{"name": "example", "version": "1.2.3"}, {"name": "@scope/host", "version": "4.5.6"}],
+            }
+            error = lane_checker.stage_host_workspace(str(fake_bun), pin, Path(directory) / "workspace")
+        self.assertIsNone(error, error)
+
     def test_host_sources_refresh_without_reinstalling_dependencies(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "repository"

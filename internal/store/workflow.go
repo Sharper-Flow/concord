@@ -1221,7 +1221,8 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 	// unverified — the gate is on consumption, not existence.
 	if p.EvidenceKind == "native_run" {
 		var state string
-		err := tx.QueryRowContext(ctx, `SELECT COALESCE(verification_state,'unverified') FROM workflow_native_runs WHERE work_id=? AND observation_id=?`, event.SubjectID, p.ImmutableSubjectRef).Scan(&state)
+		err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT verification_state FROM external_observations WHERE work_id=? AND observation_id=? AND subject_kind='native_run'),'unverified')
+			WHERE EXISTS (SELECT 1 FROM workflow_native_runs WHERE work_id=? AND observation_id=?)`, event.SubjectID, p.ImmutableSubjectRef, event.SubjectID, p.ImmutableSubjectRef).Scan(&state)
 		if err == sql.ErrNoRows {
 			return newFailure(KindMissingEvidence, "fold_event", "native_run evidence names no captured attributed record on this work", false, "verify the attributed record before binding it as completion evidence")
 		} else if err != nil {

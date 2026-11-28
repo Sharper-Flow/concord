@@ -40,6 +40,44 @@ func TestWorkflowInsertReusedIDAtCapacity(t *testing.T) {
 	}
 }
 
+func TestWorkflowInsertBeforeTargetRefusalAtCapacity(t *testing.T) {
+	const workID = "work-insert-target-capacity"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "plan", nil)
+	defer f.store.Close()
+	plan, err := readWorkflowPlanTx(t.Context(), f.store.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := len(plan.Steps); i < workflowStepPlanMaxSteps; i++ {
+		insertWorkflowPlanFixtureStep(t, f.store, workID, WorkflowPlanStep{ID: fmt.Sprintf("extra-%d", i), After: []string{"clarify"}})
+	}
+	for _, tc := range []struct {
+		name, payload, detail string
+	}{
+		{"missing", `{"id":"new-step","after":["clarify"],"before":["implement","missing"],"reason":"review"}`, `before step "missing" does not exist`},
+		{"completed", `{"id":"new-step","after":["clarify"],"before":["implement","clarify"],"reason":"review"}`, `before step "clarify" has a completion attempt`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const query = `SELECT w.version,i.step_plan FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`
+			var beforeVersion, afterVersion int64
+			var beforePlan, afterPlan string
+			if err := f.store.db.QueryRowContext(t.Context(), query, workID).Scan(&beforeVersion, &beforePlan); err != nil {
+				t.Fatal(err)
+			}
+			err := runVerdictAction(t, f.store, workID, "insert_step", json.RawMessage(tc.payload))
+			if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), tc.detail) {
+				t.Errorf("refusal = %v; want %q", err, tc.detail)
+			}
+			if err := f.store.db.QueryRowContext(t.Context(), query, workID).Scan(&afterVersion, &afterPlan); err != nil {
+				t.Fatal(err)
+			}
+			if beforeVersion != afterVersion || beforePlan != afterPlan {
+				t.Fatal("refusal changed version or plan")
+			}
+		})
+	}
+}
+
 func TestWorkflowInsertBeforeRefusals(t *testing.T) {
 	const invalidBefore = `workflow action payload field "before" has the wrong registered type or bounds`
 	for _, tc := range []struct {

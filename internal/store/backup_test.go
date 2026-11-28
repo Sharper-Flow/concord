@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -687,14 +686,7 @@ func TestBackupVerifiesAnOlderSchemaOnlyUnderAStampedBuild(t *testing.T) {
 	}
 	// The staging copy refuses inside its migration transaction; the carrier
 	// is read from that transaction's manifest.
-	var refusal *Failure
-	if !errors.As(err, &refusal) {
-		t.Fatalf("development refusal = %v, want typed failure", err)
-	}
-	wantDetail := fmt.Sprintf("unstamped development build refuses schema migration for an existing store at schema version %d (%q); this build would apply %d pending migration(s) from %d %q, %d breaking; the store does not record which release applied its migrations", 199, migrations[0].Name, 2, 200, migrations[1].Name, 2)
-	if refusal.Detail != wantDetail {
-		t.Fatalf("development refusal detail = %q, want %q", refusal.Detail, wantDetail)
-	}
+	assertUnstampedFacts(t, err, "unstamped development build refuses schema migration for an existing store", applied)
 	for _, candidate := range []string{devSnapshot, manifestPath(devSnapshot)} {
 		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("refused development backup left %s: %v", candidate, err)

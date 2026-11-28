@@ -113,8 +113,8 @@ func TestUnstampedOpenStillCreatesAFreshStore(t *testing.T) {
 		t.Fatalf("fresh database schema version = %d, want %d", got, CurrentSchemaVersion())
 	}
 	var count int
-	if err := openRawDatabase(t, path).QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&count); err != nil || count != 3 {
-		t.Fatalf("fresh manifest count = %d, %v; want 3", count, err)
+	if err := openRawDatabase(t, path).QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&count); err != nil || count != len(migrations) {
+		t.Fatalf("fresh manifest count = %d, %v; want %d", count, err, len(migrations))
 	}
 }
 

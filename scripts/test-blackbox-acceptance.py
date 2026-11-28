@@ -718,17 +718,11 @@ def _download_release_binary(work: Path, subdir: str, tag: str | None) -> Path |
 
 
 def _upgrade_probe(binary: Path, env: dict, work: Path, subdir: str, tag: str | None, seed: bytes, public_key: bytes) -> None:
-    """Check the binary under test against a home written by a published release.
+    """Check the binary under test against homes written by published releases.
 
-    Direction matters: an upgrade runs the NEW binary against OLD data. The
-    probe bootstraps a fresh home with the release binary. The latest-release
-    leg upgrades, backs up, and writes to the home. The pinned below-floor leg
-    expects refusal and checks that the manifest head remains unchanged.
-    If the old binary rejects the bootstrap payloads
-    (strict-field CLI drift), the step skips with that typed failure in the
-    reason: CLI-contract drift is governed by the agent-surface contracts,
-    not by this store-compatibility gate. A failure of the NEW binary against
-    old-binary data outside the expected refusal is a hard failure.
+    Each leg uses its release's bootstrap payload; rejection fails the step.
+    The latest leg upgrades, backs up and writes. The pinned below-floor leg
+    checks refusal and an unchanged manifest head.
     """
     candidate = _download_release_binary(work, subdir, tag)
     if candidate is None:
@@ -747,16 +741,20 @@ def _upgrade_probe(binary: Path, env: dict, work: Path, subdir: str, tag: str | 
     }
     for directory in (work / f'{subdir}-data', work / f'{subdir}-config'):
         directory.mkdir(parents=True, exist_ok=True)
+    # The pinned release uses its built contract; latest uses the current CLI contract.
+    registration = {
+        'client_ref': 'harness-client',
+        'key_id': 'harness-key-1',
+        'principal_ref': 'harness-operator',
+        'public_key': _b64(public_key),
+        'capabilities': ['product_read'],
+        'product_scope': ['harness-upgrade-product'],
+        'project_scope': ['harness-upgrade-project'],
+    }
+    if tag is None:
+        registration['agent_scope'] = ['harness-upgrade-agent']
     try:
-        _run(candidate, ['client', 'register'], {
-            'client_ref': 'harness-client',
-            'key_id': 'harness-key-1',
-            'principal_ref': 'harness-operator',
-            'public_key': _b64(public_key),
-            'capabilities': ['product_read'],
-            'product_scope': ['harness-upgrade-product'],
-            'project_scope': ['harness-upgrade-project'],
-        }, old_env)
+        _run(candidate, ['client', 'register'], registration, old_env)
         _run(candidate, ['product', 'create'], {
             'product_id': 'harness-upgrade-product',
             'display_name': 'Upgrade probe product',
@@ -768,9 +766,7 @@ def _upgrade_probe(binary: Path, env: dict, work: Path, subdir: str, tag: str | 
             'reason': 'blackbox upgrade probe written by the release binary',
         }, old_env)
     except HarnessError as error:
-        reason = str(error)[:300]
-        print(f"SKIP-UPGRADE[{tag or 'latest'}]: release binary rejected the bootstrap payload (CLI drift): {reason}", flush=True)
-        return
+        raise HarnessError(f"upgrade leg {tag or 'latest'}: release {tag or 'latest'} rejected bootstrap: {error}") from error
 
     if tag == UPGRADE_PROBE_OLD_TAG:
         db_path = Path(old_env['XDG_DATA_HOME']) / 'concord' / 'concord.db'
@@ -793,6 +789,7 @@ def _upgrade_probe(binary: Path, env: dict, work: Path, subdir: str, tag: str | 
         after = manifest_head()
         if after != before:
             raise HarnessError(f"old release manifest head changed: {before} -> {after}")
+        print(f"UPGRADE[{tag}]: {version_check.stdout.strip()}: refused below-floor data; manifest head unchanged", flush=True)
         return
 
     # The NEW binary applies pending migrations through the explicit upgrade
@@ -813,6 +810,7 @@ def _upgrade_probe(binary: Path, env: dict, work: Path, subdir: str, tag: str | 
         'role': 'primary',
         'reason': 'blackbox upgrade probe written by the binary under test',
     }, old_env)
+    print(f"UPGRADE[latest]: {version_check.stdout.strip()}: upgraded, backed up and wrote", flush=True)
 
 
 # v0.13.0 supplies real released data below the supported floor. CD-0082 D4

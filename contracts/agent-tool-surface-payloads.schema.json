@@ -2017,9 +2017,7 @@
         },
         "view": {
           "type": "string",
-          "enum": [
-            "documents"
-          ],
+          "enum": ["documents"],
           "description": "The documents view returns the item's retained plan, Clarify and diagnosis documents as stored, each with its recorded work version, instead of the step plan. Omit view to read the step plan."
         },
         "page": {
@@ -2071,32 +2069,17 @@
     "resume_documents_document": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "work_id",
-        "version",
-        "documents"
-      ],
+      "required": ["work_id", "version", "documents"],
       "properties": {
-        "work_id": {
-          "type": "string"
-        },
-        "version": {
-          "type": "integer",
-          "minimum": 1
-        },
+        "work_id": {"type": "string"},
+        "version": {"type": "integer", "minimum": 1},
         "documents": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "plan": {
-              "$ref": "#/$defs/resume_retained_document"
-            },
-            "clarify": {
-              "$ref": "#/$defs/resume_retained_document"
-            },
-            "diagnosis": {
-              "$ref": "#/$defs/resume_retained_document"
-            }
+            "plan": {"$ref": "#/$defs/resume_retained_document"},
+            "clarify": {"$ref": "#/$defs/resume_retained_document"},
+            "diagnosis": {"$ref": "#/$defs/resume_retained_document"}
           }
         }
       }
@@ -2104,15 +2087,9 @@
     "resume_retained_document": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "recorded_work_version",
-        "document"
-      ],
+      "required": ["recorded_work_version", "document"],
       "properties": {
-        "recorded_work_version": {
-          "type": "integer",
-          "minimum": 1
-        },
+        "recorded_work_version": {"type": "integer", "minimum": 1},
         "document": {
           "type": "string",
           "description": "Retained stored JSON object text, returned exactly as stored. The reader parses the text as JSON; this read does not revalidate it against the current action schema. No maximum is imposed on retained readback text: the complete stored document remains readable through lossless fragments."

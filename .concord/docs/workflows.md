@@ -115,8 +115,15 @@ observable outcome and proof strategy; independent Review judges the delivery.
 ### 2.1a Contract and plan
 
 Every work item carries a contract. The approved plan records
-the observable outcome and proof strategy. A newly recorded plan lists each outcome with its done condition, evidence and dependencies, each touched path with its role, and each decision with its status; a plan recorded earlier is served as stored. The driving agent may insert a reviewed step and place it before steps that have not started; those steps then wait for it. An architectural plan gets an independent review that way before its contract is approved and before implementation starts. Work discovered outside the agreed
+the observable outcome and proof strategy. A newly recorded plan lists each outcome with its done condition, evidence and dependencies, each touched path with its role, and each decision with its status; a plan recorded earlier is served as stored. Work discovered outside the agreed
 scope forward-links as successor work under CD-0006 R1; it never substitutes.
+
+The driving agent can [insert a reviewed step as a prerequisite](../law/specs/workflow-engine-contract.md#12-workflow-types-prelude-and-step-admission)
+of eligible steps, which then wait for its completion. The
+[architecture-writing method](../../skills/concord-architecture-writing/SKILL.md#plan-an-architectural-change)
+uses this to put an independent plan review before implementation. The driving
+agent gets that review before approving the contract; the engine does not
+enforce that approval order.
 
 The stored step plan shows which workflow steps remain; the default
 `concord_work_trace.resume` view reads it. The explicit documents view reads

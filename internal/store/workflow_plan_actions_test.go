@@ -13,18 +13,19 @@ import (
 )
 
 func TestWorkflowInsertBeforeRefusals(t *testing.T) {
+	const invalidBefore = `workflow action payload field "before" has the wrong registered type or bounds`
 	for _, tc := range []struct {
 		name, payload, detail string
 		kind                  FailureKind
 	}{
-		{"unknown", `{"id":"extra","after":["clarify"],"before":["missing"],"reason":"review"}`, `before step "missing" does not exist`, KindInvalidOperation},
+		{"unknown", `{"id":"extra","after":["clarify"],"before":["implement","missing"],"reason":"review"}`, `before step "missing" does not exist`, KindInvalidOperation},
 		{"completed", `{"id":"extra","after":["clarify"],"before":["clarify"],"reason":"review"}`, `before step "clarify" has a completion attempt`, KindInvalidOperation},
 		{"cycle", `{"id":"extra","after":["implement"],"before":["implement"],"reason":"review"}`, "cycle", KindInvalidOperation},
-		{"reused id", `{"id":"plan","after":["clarify"],"before":["implement"],"reason":"review"}`, "duplicated", KindInvalidOperation},
-		{"duplicate before", `{"id":"extra","after":["clarify"],"before":["implement","implement"],"reason":"review"}`, "before", KindInvalidPayload},
-		{"empty before", `{"id":"extra","after":["clarify"],"before":[],"reason":"review"}`, "before", KindInvalidPayload},
-		{"too many", `{"id":"extra","after":["clarify"],"before":["aa","ab","ac","ad","ae","af","ag","ah","ai","aj","ak","al","am","an","ao","ap","aq"],"reason":"review"}`, "before", KindInvalidPayload},
-		{"invalid id", `{"id":"extra","after":["clarify"],"before":["not/an/id"],"reason":"review"}`, "before", KindInvalidPayload},
+		{"reused prerequisite id", `{"id":"plan","after":["clarify"],"before":["implement"],"reason":"review"}`, `inserted step "plan" already exists`, KindInvalidOperation},
+		{"duplicate before", `{"id":"extra","after":["clarify"],"before":["implement","implement"],"reason":"review"}`, invalidBefore, KindInvalidPayload},
+		{"empty before", `{"id":"extra","after":["clarify"],"before":[],"reason":"review"}`, invalidBefore, KindInvalidPayload},
+		{"too many", `{"id":"extra","after":["clarify"],"before":["aa","ab","ac","ad","ae","af","ag","ah","ai","aj","ak","al","am","an","ao","ap","aq"],"reason":"review"}`, invalidBefore, KindInvalidPayload},
+		{"invalid id", `{"id":"extra","after":["clarify"],"before":["not/an/id"],"reason":"review"}`, invalidBefore, KindInvalidPayload},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const workID = "work-insert-before-refusal"
@@ -56,7 +57,7 @@ func TestWorkflowInsertBeforeUnstartedStep(t *testing.T) {
 	const workID = "work-insert-before"
 	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "plan", nil)
 	defer f.store.Close()
-	err := runVerdictAction(t, f.store, workID, "insert_step", json.RawMessage(`{"id":"plan-review","after":["clarify"],"before":["implement"],"helper":"concord-review","reviewed":true,"reason":"review plan"}`))
+	err := runVerdictAction(t, f.store, workID, "insert_step", json.RawMessage(`{"id":"plan-review","after":["clarify"],"before":["implement","review"],"helper":"concord-review","reviewed":true,"reason":"review plan"}`))
 	if err != nil {
 		t.Fatalf("insert before implement: %v", err)
 	}
@@ -64,9 +65,11 @@ func TestWorkflowInsertBeforeUnstartedStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	step, found := stepByID(plan.Steps, "implement")
-	if !found || len(step.After) != 2 || step.After[1] != "plan-review" {
-		t.Fatalf("implement edges = %v", step.After)
+	for id, previous := range map[string]string{"implement": "plan", "review": "implement"} {
+		step, found := stepByID(plan.Steps, id)
+		if !found || len(step.After) != 2 || step.After[0] != previous || step.After[1] != "plan-review" {
+			t.Fatalf("%s edges = %v; want [%s plan-review]", id, step.After, previous)
+		}
 	}
 }
 

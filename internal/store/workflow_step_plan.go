@@ -401,7 +401,12 @@ func validateStepPlanEdgeInsertion(old, updated WorkflowStepPlan, refuse func(st
 	}
 	for i, previous := range old.Steps {
 		current := updated.Steps[i]
-		if !slices.Equal(previous.After, current.After) {
+		// The required after list encodes nil as null, not [].
+		sameAfter := (previous.After == nil) == (current.After == nil) && slices.Equal(previous.After, current.After)
+		if !sameAfter {
+			if len(previous.Attempts) != 0 {
+				return refuse("a completed step's after edges never change")
+			}
 			if len(current.After) != len(previous.After)+1 || !slices.Equal(current.After[:len(previous.After)], previous.After) || current.After[len(previous.After)] != added.ID {
 				return refuse("an existing step's after edges never change except for a single insertion")
 			}

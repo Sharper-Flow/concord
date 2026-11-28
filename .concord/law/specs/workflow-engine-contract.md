@@ -156,10 +156,13 @@ completes. Nothing is written on a start, checkpoint, retry or read.
 Each plan write is a single row update under the item's expected version.
 Before it saves, one function compares the new plan with the old one and
 refuses the write if the plan fails its schema, contains a cycle, removes a
-required step or changes a step's `after` edges outside the last prerequisite
-an insertion appends under [section 12](#12-workflow-types-prelude-and-step-admission),
-completes a step before every step it comes after, or alters a completed step. A repeated step adds another
-attempt instead of altering it. A type switch keeps completed steps and adds
+required step, improperly changes a step's `after` edges, completes a step
+before every step it comes after, or alters a completed step. Only an insertion
+under [section 12](#12-workflow-types-prelude-and-step-admission) can append
+its id to existing `after` edges. That write keeps the type and existing step
+order, appends exactly one incomplete optional step, and changes no other
+edges, metadata or attempts. A repeated step adds another attempt instead of
+altering it. A type switch keeps completed steps and adds
 the new type's missing required steps; it never removes a step. A switch adds no
 Clarify step to a stored plan that never held one: a copied plan never changes
 when a template changes, and plans carry no template-version marker. When a
@@ -456,7 +459,7 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | clarify recorded | insert or replace the `workflow_clarify_records` row with the step document, work version, time, actor and event reference |
 | diagnosis recorded | insert or replace the `workflow_diagnosis_records` row with reproduction and root cause, work version, time, actor and event reference; existing diagnosis exits are not backfilled |
 | type picked | write the item's step plan in one row update through the plan-write check (§2.3); the initial pick copies the type's template; a later pick adds the new type's missing required steps only |
-| step inserted | add the inserted step through the plan-write check and append its id as the last prerequisite of each step it names under section 12; no other existing step changes |
+| step inserted | add the inserted step and append its id as the last prerequisite of each step it names under [section 12](#12-workflow-types-prelude-and-step-admission) in one plan write; change nothing else about existing steps |
 | step completed | append the step's attempt through the plan-write check; the frontier derives from completions, and no step pointer is stored |
 | contract recorded/updated | insert the immutable contract version; an ordinary update atomically makes the next version current under §4.1 |
 | actor recorded | insert once; a different tuple for an existing `actor_ref` is refused |
@@ -640,14 +643,14 @@ and its required steps, including **Clarify** before the type's planning step,
 are copied from the template contract into the item's plan
 ([section 2](#2-workflow-type-templates-and-step-plans)).
 
-**Inserted steps.** Between required steps the driving agent may insert a step
-into the item's plan, and the engine does not refuse it. An inserted step
-anchors itself by declaring its own `after` edges. It may also name one to
-sixteen distinct existing steps that have no recorded execution start,
-checkpoint or completion attempt; each named step then gains the inserted step
-as its last prerequisite, in the same plan write. No other existing step changes.
-A send-back is a new inserted step after the current one, never an edge pointing
-backwards, so the plan stays a DAG.
+**Inserted steps.** The driving agent may insert an optional step into the
+item's plan. An inserted step anchors itself by declaring its own `after`
+edges. It may also name one to sixteen distinct existing steps that have no
+recorded execution start, checkpoint or completion attempt. Each named step
+then gains the inserted step as its last prerequisite in the same plan write.
+Nothing else about existing steps changes.
+A send-back inserts a new step after the current one instead of changing
+completed steps.
 
 **No skip move.** After a step completes, the agent either proceeds to a next
 step or inserts a step. Nothing skips a required step. The three ending intake
@@ -729,26 +732,27 @@ The contract does not invent audience storage or a new workflow type.
 ## Acceptance criteria
 
 - Given a plan write that removes a required step, changes a step's after
-  edges outside the last prerequisite an insertion appends (§12), completes a
-  step before every step it comes after, or alters a
-  completed step
+  edges outside the insertion exception (§§2.3, 12), completes a step before
+  every step it comes after, or alters a completed step
   When the write reaches the plan-write check (§2.3, `ValidateStepPlanWrite`)
   Then the engine refuses with invalid_input, records no plan change, and the
   stored plan is unchanged. A dispatched `complete_step` naming a step that is
   neither on the plan frontier nor completed never reaches that check: the §11
   dispatcher's frontier admission refuses it with invalid_transition.
 
-- Given an inserted step that names existing steps with no execution start, checkpoint
-  or completion attempt
-  When the insertion reaches the plan-write check (§2.3)
-  Then each named step gains the inserted step as its last prerequisite and every
-  other existing step is unchanged; a named step that is unknown, started or
-  completed is refused with invalid_operation and the stored plan is unchanged.
-
 - Given a completion that satisfies the ordered completion gate
   When the completion transaction commits
   Then terminal metadata, lifecycle change, reported delivery links and the
   completion record commit together or not at all.
+
+- Given an insertion that names steps to run after it
+  When the engine applies the insertion
+  Then, if every named step exists and has no recorded execution start,
+  checkpoint or completion attempt and the write passes §2.3, each named step
+  gains the inserted step as its last prerequisite. If a named step does not
+  exist or has a recorded execution start, checkpoint or completion attempt,
+  the engine names the step and cause in an invalid_input refusal. The work
+  version and stored plan remain unchanged on refusal.
 
 ## Verification
 

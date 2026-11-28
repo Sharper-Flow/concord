@@ -78,6 +78,34 @@ func TestRecordPlanPayloadContractIsTyped(t *testing.T) {
 	_ = requirePayloadFailure(t, err, "decisions", "schema")
 }
 
+func TestRecordPlanPayloadContractDeclaresArrayItems(t *testing.T) {
+	action, err := WorkflowPlanActionContract("record_plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		ref        string
+		min, max   int64
+	}{
+		"outcomes":  {"workflow_plan_outcome", 1, 16},
+		"decisions": {"workflow_design_decision", 0, 16},
+		"touches":   {"workflow_plan_touch", 1, 64},
+	}
+	for _, field := range action.Payload.Fields {
+		expected, ok := want[field.Name]
+		if !ok {
+			continue
+		}
+		if field.ValueType != PayloadArray || field.ItemRef != expected.ref || field.SchemaRef != "" || field.MinItems == nil || *field.MinItems != expected.min || field.MaxItems == nil || *field.MaxItems != expected.max {
+			t.Errorf("%s declaration = %+v, want element %s and bounds %d..%d", field.Name, field, expected.ref, expected.min, expected.max)
+		}
+		delete(want, field.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing array declarations: %v", want)
+	}
+}
+
 func TestRecordPlanClosure(t *testing.T) {
 	const valid = `{"outcomes":[{"id":"outcome:one","statement":"one","done_condition":"done","evidence":"test","depends_on":[]},{"id":"outcome:two","statement":"two","done_condition":"done","evidence":"test","depends_on":["outcome:one"]}],"approach":"bounded","decisions":[{"id":"decision:one","question":"which","choice":"one","rationale":"fits","rejected":[],"status":"settled"}],"touches":[{"path":"file:one","role":"change"}],"merge_split":"one","risks":"bounded"}`
 	for _, tc := range []struct{ name, old, replacement, field string }{

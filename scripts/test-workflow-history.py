@@ -52,10 +52,10 @@ class HistoricalReplayTest(unittest.TestCase):
         archive = subprocess.check_output(["git", "archive", BASELINE_COMMIT], cwd=ROOT)
         with tarfile.open(fileobj=io.BytesIO(archive)) as source:
             source.extractall(cls.baseline, filter="data")
-        # The released definition API and the current plan API differ. Both
-        # adapters receive the same assertion inputs; the baseline adapter maps
-        # the plan fields to the released design action without changing the
-        # decision array or invalid object under test.
+        # The baseline adapter maps plan fields to the released design action,
+        # preserving decision entries and shared fields while stripping status
+        # and approval. The assertion proves the baseline accepts a valid
+        # multi-element decision array, not the new members.
         adapter = (ROOT / "scripts/testdata/workflow-history-adapter.go.txt").read_bytes()
         (cls.baseline / "internal/store/zz_workflow_history_adapter_test.go").write_bytes(adapter)
         cls.baseline_adapter_sha256 = hashlib.sha256(adapter).hexdigest()

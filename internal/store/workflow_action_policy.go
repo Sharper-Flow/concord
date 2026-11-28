@@ -218,12 +218,8 @@ func actionObjectField(name string, schemaRef string) WorkflowPayloadField {
 	return WorkflowPayloadField{Name: name, ValueType: PayloadObject, Required: false, SchemaRef: schemaRef}
 }
 
-func actionArrayField(name string, required bool, upper int64, schemaRef string) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(1), MaxItems: workflowInt(upper), SchemaRef: schemaRef}
-}
-
-func actionArrayFieldWithMinimum(name string, required bool, lower, upper int64, schemaRef string) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), SchemaRef: schemaRef}
+func actionArrayField(name string, required bool, lower, upper int64, itemRef string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: itemRef}
 }
 
 func evidenceBindingActionFields() []WorkflowPayloadField {
@@ -331,10 +327,10 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionRefField("commit", false), actionRefField("link", false),
 	),
 	"record_plan": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		actionArrayField("outcomes", true, 16, "workflow_plan_outcome"),
+		actionArrayField("outcomes", true, 1, 16, "workflow_plan_outcome"),
 		WorkflowPayloadField{Name: "approach", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
-		actionArrayFieldWithMinimum("decisions", true, 0, 16, "workflow_design_decision"),
-		actionArrayField("touches", true, 64, "workflow_plan_touch"),
+		actionArrayField("decisions", true, 0, 16, "workflow_design_decision"),
+		actionArrayField("touches", true, 1, 64, "workflow_plan_touch"),
 		WorkflowPayloadField{Name: "merge_split", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 		WorkflowPayloadField{Name: "risks", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 		WorkflowPayloadField{Name: "reason", ValueType: PayloadString, Required: false, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(2048)},

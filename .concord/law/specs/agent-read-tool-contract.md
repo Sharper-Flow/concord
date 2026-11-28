@@ -123,7 +123,7 @@ related to other work—not when it wants a current work list.
 |---|---|---|---|
 | `history` | Q7 | `work_id`; direction; optional record kinds; cursor/limit | `work_event_page`: recorded mutations within the store's finite retained categories, with versions, actor, reason, and evidence references ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) |
 | `relations` | Q8 | `work_id`; closed relation kinds; direction; depth 1–3 | `work_relation_graph`: bounded canonical nodes/edges and inverses |
-| `resume` | — | `work_id`; cursor/limit | the stored step plan and resume fragments |
+| `resume` | — | `work_id`; optional `view`; cursor/limit | the stored step plan or the retained plan, Clarify and diagnosis documents view, with resume fragments ([CD-0016](../decisions/CD-0016-context-continuity.md)) |
 
 History and relation traversal share singular work scope, explanatory intent,
 bounded graph/sequence behavior, and provenance-oriented recovery. They remain

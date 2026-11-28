@@ -118,6 +118,14 @@ Every work item carries a contract. The approved plan records
 the observable outcome and proof strategy. Work discovered outside the agreed
 scope forward-links as successor work under CD-0006 R1; it never substitutes.
 
+The stored step plan shows which workflow steps remain; the default
+`concord_work_trace.resume` view reads it. The explicit documents view reads
+the retained plan, Clarify and diagnosis text with the work version at which
+each was recorded. These documents are read on demand, never injected at
+session boot ([CD-0016](../law/decisions/CD-0016-context-continuity.md)).
+A retained document is a record, not approval evidence. A document recorded
+before a contract or type change is served as stored.
+
 Contract changes use [workflow-engine contract §4.1](../law/specs/workflow-engine-contract.md#41-ordinary-contract-updates).
 The update appends the next retained version without resetting the step or
 discarding evidence. Earlier version content remains immutable; the candidate

@@ -15,9 +15,9 @@ Identify the base, the candidate, the assigned step, and the permitted repair
 scope. Include uncommitted changes when they are part of the assigned candidate.
 Establish whether the caller requested an intermediate or final review.
 
-For managed work, read the approved plan through the explicit documents view
+For managed work, read the recorded plan through the explicit documents view
 in [context continuity](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0016-context-continuity.md).
-Reconstruct and verify any fragments before parsing the plan's `document`
+The recorded plan is not approval evidence. Reconstruct and verify any fragments before parsing the plan's `document`
 string. Use the ticket for unmanaged work or when the complete result has no
 plan. Read the repository's applicable standards, including contribution
 guidance and local instructions for affected files. Follow their references

@@ -1904,6 +1904,10 @@
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
         },
+        "view": {
+          "type": "string",
+          "enum": ["documents"]
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -1918,12 +1922,13 @@
       }
     },
     "resume_read_result": {
-      "description": "The complete resume document when it fits, otherwise authenticated lossless JSON fragments. Reconstruct the entire document and verify its digest and byte length before validating resume_read_document and using it.",
+      "description": "The complete selected resume document when it fits, otherwise authenticated lossless JSON fragments. Reconstruct the entire document and verify its digest and byte length before validating the selected document and using it.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "work_id": {},
         "version": {},
+        "documents": {},
         "state": {},
         "type": {},
         "steps": {},
@@ -1942,9 +1947,42 @@
           "$ref": "#/$defs/resume_read_document"
         },
         {
+          "$ref": "#/$defs/resume_documents_document"
+        },
+        {
           "$ref": "#/$defs/json_fragment_page"
         }
       ]
+    },
+    "resume_documents_document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["work_id", "version", "documents"],
+      "properties": {
+        "work_id": {"type": "string"},
+        "version": {"type": "integer", "minimum": 1},
+        "documents": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "plan": {"$ref": "#/$defs/resume_retained_document"},
+            "clarify": {"$ref": "#/$defs/resume_retained_document"},
+            "diagnosis": {"$ref": "#/$defs/resume_retained_document"}
+          }
+        }
+      }
+    },
+    "resume_retained_document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recorded_work_version", "document"],
+      "properties": {
+        "recorded_work_version": {"type": "integer", "minimum": 1},
+        "document": {
+          "type": "string",
+          "description": "Retained stored JSON object text, returned exactly as stored. The reader parses the text as JSON; this read does not revalidate it against the current action schema. No maximum is imposed on retained readback text: the complete stored document remains readable through lossless fragments."
+        }
+      }
     },
     "resume_read_document": {
       "description": "The item's stored step plan, derived next step ids and work version. Before intake, opening_steps contains intake and pick_type; after proceed it contains pick_type, and after any other intake outcome it is absent. After type pick, next_steps derives from the stored plan. Every type requires clarify; fix requires diagnose first. Terminal items carry neither next_steps nor opening_steps.",

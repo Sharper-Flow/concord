@@ -376,7 +376,9 @@ existing `work_items(id)` key; actor references point to `workflow_actors`.
 
 Every retained workflow record names its reader. The plan and removal-scope
 documents gate their owning step's completion (`requireWorkflowPlanDocumentTx`);
-the clarify document gates the Clarify step through the same gate; the delivery
+the clarify document gates the Clarify step through the same gate;
+`concord_work_trace.resume` with `view=documents` reads the retained plan,
+Clarify and diagnosis documents and their recorded work versions; the delivery
 assertion gates completion and the retained `record_delivery` admission
 (`requireWorkflowCompletionFactsTx`, `workflowPlanTerminalAdmissionTx`); the
 diagnosis gates the diagnose step; the prelude's intake outcome drives opening
@@ -449,7 +451,7 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | evidence bound | write to the existing evidence authority; it is not copied into a workflow-only authority |
 | premise confirmed | insert operator confirmation |
 | successor linked | write the existing `forward_link` relation; workflow state remains independent |
-| completed | retain terminal current-state identity and reported delivery links and dispose workflow step records atomically after the completion transaction's prior clauses pass; no publication, closure hash or deferred cleanup |
+| completed | retain terminal current-state identity, reported delivery links and the workflow documents (plan, removal-scope, Clarify and diagnosis) and dispose workflow step records atomically after the completion transaction's prior clauses pass; no publication, closure hash or deferred cleanup |
 | work item terminal (`work.transitioned` to `completed` or `cancelled`) | close a live instance in the same transaction: `cancelled` and completed-by-lifecycle both record `cancelled` because the completion gate never ran; an instance already terminal keeps its record |
 
 ## 6. Independent Review

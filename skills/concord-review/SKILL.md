@@ -15,7 +15,8 @@ Identify the base, the candidate, the assigned step, and the permitted repair
 scope. Include uncommitted changes when they are part of the assigned candidate.
 Establish whether the caller requested an intermediate or final review.
 
-Read the ticket's end state or approved plan and the repository's applicable
+Read the approved plan through `concord_work_trace.resume` with `view=documents`;
+when the plan is absent, use the ticket. Read the repository's applicable
 standards, including contribution guidance and local instructions for affected
 files. Follow their references where the change depends on them. Return missing
 inputs to the caller rather than inventing requirements from the diff.

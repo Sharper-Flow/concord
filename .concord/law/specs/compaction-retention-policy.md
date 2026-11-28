@@ -84,6 +84,7 @@ linked to the old one without changing the historical note.
 | Data | Consumer and applicability | Removal condition |
 |---|---|---|
 | terminal current-state identity and reported delivery link | exact work readers and retained delivery state | explicit work removal under its owning contract |
+| retained plan, removal-scope, Clarify and diagnosis documents | explicit `concord_work_trace.resume` documents view for plan, Clarify and diagnosis; the list step's completion gate for the removal scope | explicit work removal under its owning contract; completion retains them as current state |
 | operation results and effect receipts | retries and reconciliation of the original intent | CD-0242 D2's documented end of the retry/reconciliation consumer |
 | historical notes and locator projections | historical readers return the recorded locator and authorize it through frozen scope | Git owns notes; retained projections restore as current state ([PM6 §3](canonical-git-note-placement.md#3-historical-locator)), with no replacement surface |
 | verified snapshots | PM10 restore and unfinished recovery | documented count/age bound, never the newest verified snapshot or one recovery needs |

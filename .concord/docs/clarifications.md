@@ -263,7 +263,8 @@ re-litigate them silently.
   [`../law/specs/canonical-git-note-placement.md`](../law/specs/canonical-git-note-placement.md). This question is
   unrelated to that tier and must be named **context continuity** to avoid collision.
 - **Direction:** Explicit current-state reads, not summaries, supply authority.
-  `concord_work_trace.resume` supplies the step plan; item-scoped
+  `concord_work_trace.resume` supplies the step plan and, with `view=documents`,
+  the retained plan, Clarify and diagnosis documents; item-scoped
   `concord_work_browse.list` with full detail supplies law context, pending
   handoff and native runs.
   Summaries remain advisory and may follow only a completed durable unit.

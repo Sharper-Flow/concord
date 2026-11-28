@@ -84,8 +84,8 @@ func TestRecordPlanPayloadContractDeclaresArrayItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]struct {
-		ref        string
-		min, max   int64
+		ref      string
+		min, max int64
 	}{
 		"outcomes":  {"workflow_plan_outcome", 1, 16},
 		"decisions": {"workflow_design_decision", 0, 16},

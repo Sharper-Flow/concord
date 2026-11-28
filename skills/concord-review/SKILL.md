@@ -33,6 +33,18 @@ is supported. A missing required destination or unsupported explanation is a
 finding that blocks delivery. Ordinary work with no architectural outputs owes
 no architecture documents solely for this review.
 
+### A recorded plan as the candidate
+
+When the assigned candidate is a recorded plan rather than code, read it through
+the explicit documents view named in
+[context continuity](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0016-context-continuity.md)
+and name its recorded work version and the base commit it was written against.
+Check the ticket end state, the repository standards the implementation will
+meet, and the governing law: every outcome has a checkable done condition and
+evidence, its dependencies name outcomes that exist, the touched paths cover the
+callers and readers, and every operator-reserved decision is settled or routed.
+Return pass, fixed with the corrections the owner records, or blocked.
+
 ## Review two axes
 
 Keep the two assessments distinct; passing one cannot compensate for failing

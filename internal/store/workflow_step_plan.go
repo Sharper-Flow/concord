@@ -318,13 +318,8 @@ func validateStepPlanInitialCopy(plan WorkflowStepPlan) error {
 func workflowPlanStepEqual(left, right WorkflowPlanStep) bool {
 	if left.ID != right.ID || left.Required != right.Required || left.Reviewed != right.Reviewed || left.Reason != right.Reason ||
 		!equalOptionalString(left.Skill, right.Skill) || !equalOptionalString(left.Helper, right.Helper) ||
-		len(left.After) != len(right.After) || len(left.Attempts) != len(right.Attempts) {
+		!equalWorkflowAfter(left.After, right.After) || len(left.Attempts) != len(right.Attempts) {
 		return false
-	}
-	for index, after := range left.After {
-		if right.After[index] != after {
-			return false
-		}
 	}
 	for index, attempt := range left.Attempts {
 		if right.Attempts[index] != attempt {
@@ -332,6 +327,11 @@ func workflowPlanStepEqual(left, right WorkflowPlanStep) bool {
 		}
 	}
 	return true
+}
+
+// equalWorkflowAfter preserves the stored JSON distinction between null and [].
+func equalWorkflowAfter(left, right []string) bool {
+	return (left == nil) == (right == nil) && slices.Equal(left, right)
 }
 
 // validateStepPlanContinuation holds the step-insert and step-completion
@@ -344,7 +344,7 @@ func validateStepPlanContinuation(old, updated WorkflowStepPlan) error {
 	}
 	edgesChanged := false
 	for _, previous := range old.Steps {
-		if current, found := stepByID(updated.Steps, previous.ID); found && !slices.Equal(previous.After, current.After) {
+		if current, found := stepByID(updated.Steps, previous.ID); found && !equalWorkflowAfter(previous.After, current.After) {
 			edgesChanged = true
 			break
 		}
@@ -401,9 +401,7 @@ func validateStepPlanEdgeInsertion(old, updated WorkflowStepPlan, refuse func(st
 	}
 	for i, previous := range old.Steps {
 		current := updated.Steps[i]
-		// The required after list encodes nil as null, not [].
-		sameAfter := (previous.After == nil) == (current.After == nil) && slices.Equal(previous.After, current.After)
-		if !sameAfter {
+		if !equalWorkflowAfter(previous.After, current.After) {
 			if len(previous.Attempts) != 0 {
 				return refuse("a completed step's after edges never change")
 			}
@@ -477,7 +475,7 @@ func validateStepPlanExistingStep(oldSteps []WorkflowPlanStep, previous, step Wo
 			return 0, refuse("a completed step's attempts are never altered")
 		}
 	}
-	if !slices.Equal(previous.After, step.After) {
+	if !equalWorkflowAfter(previous.After, step.After) {
 		return 0, refuse("an existing step's after edges never change")
 	}
 	if previous.Required != step.Required || previous.Reviewed != step.Reviewed || previous.Reason != step.Reason || !equalOptionalString(previous.Skill, step.Skill) || !equalOptionalString(previous.Helper, step.Helper) {

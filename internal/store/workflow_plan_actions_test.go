@@ -5,12 +5,40 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
+
+func TestWorkflowInsertReusedIDAtCapacity(t *testing.T) {
+	const workID = "work-insert-reused-capacity"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "plan", nil)
+	defer f.store.Close()
+	plan, err := readWorkflowPlanTx(t.Context(), f.store.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := len(plan.Steps); i < workflowStepPlanMaxSteps; i++ {
+		insertWorkflowPlanFixtureStep(t, f.store, workID, WorkflowPlanStep{ID: fmt.Sprintf("extra-%d", i), After: []string{"clarify"}})
+	}
+	for _, tc := range []struct {
+		name    string
+		payload json.RawMessage
+	}{
+		{"without before", json.RawMessage(`{"id":"plan","after":["clarify"],"reason":"additional work"}`)},
+		{"with before", json.RawMessage(`{"id":"plan","after":["clarify"],"before":["implement"],"reason":"additional work"}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runVerdictAction(t, f.store, workID, "insert_step", tc.payload)
+			if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), `inserted step "plan" already exists`) {
+				t.Fatalf("reused id at capacity = %v; want reused-id refusal", err)
+			}
+		})
+	}
+}
 
 func TestWorkflowInsertBeforeRefusals(t *testing.T) {
 	const invalidBefore = `workflow action payload field "before" has the wrong registered type or bounds`

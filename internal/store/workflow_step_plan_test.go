@@ -7,6 +7,56 @@ import (
 	"time"
 )
 
+func TestWorkflowStepPlanAfterEncodingImmutable(t *testing.T) {
+	for _, oldNil := range []bool{false, true} {
+		name := "empty to nil"
+		if oldNil {
+			name = "nil to empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+			next := stepPlanCopy(old)
+			if oldNil {
+				old.Steps[0].After = nil
+				next.Steps[0].After = []string{}
+			} else {
+				next.Steps[0].After = nil
+			}
+			err := ValidateStepPlanWrite(&old, next)
+			if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), "after edges never change") {
+				t.Fatalf("encoding-only write = %v; want unchanged-after refusal", err)
+			}
+		})
+	}
+}
+
+func TestWorkflowStepPlanTypeSwitchAfterEncodingImmutable(t *testing.T) {
+	old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	next := stepPlanCopy(old)
+	next.Type = WorkflowStepPlanFix
+	next.Steps[0].After = nil
+	next.Steps = append(next.Steps, stepPlanTemplateOrFatal(t, WorkflowStepPlanFix).Steps[0])
+	err := ValidateStepPlanWrite(&old, next)
+	if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), "after edges never change") {
+		t.Fatalf("encoding-only switch = %v; want unchanged-after refusal", err)
+	}
+}
+
+func TestWorkflowStepPlanInsertionAfterNil(t *testing.T) {
+	old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	old.Steps[0].After = nil
+	next := stepPlanCopy(old)
+	next.Steps[0].After = append(old.Steps[0].After, "extra")
+	next.Steps = append(next.Steps, WorkflowPlanStep{ID: "extra", After: []string{}})
+	if err := ValidateStepPlanWrite(&old, next); err != nil {
+		t.Fatalf("insertion after nil refused: %v", err)
+	}
+	raw, err := json.Marshal(next.Steps[0])
+	if err != nil || !strings.Contains(string(raw), `"after":["extra"]`) {
+		t.Fatalf("inserted prerequisite encoding = %s: %v", raw, err)
+	}
+}
+
 func TestWorkflowStepPlanReasonImmutable(t *testing.T) {
 	old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
 	next := stepPlanCopy(old)

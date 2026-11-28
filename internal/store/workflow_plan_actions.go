@@ -257,11 +257,11 @@ func foldWorkflowStepInserted(ctx context.Context, tx *sql.Tx, event Event) erro
 	if plan == nil {
 		return newFailure(KindInvalidOperation, "fold_event", "workflow has no plan", false, "pick a workflow type")
 	}
+	if stepIDExists(plan.Steps, p.ID) {
+		return newFailure(KindInvalidOperation, "fold_event", fmt.Sprintf("inserted step %q already exists", p.ID), false, "choose a new step id")
+	}
 	if len(plan.Steps) >= workflowStepPlanMaxSteps {
 		return newFailure(KindInvalidOperation, "fold_event", "workflow plan has reached the 64-step limit", false, "use link_successor before workflow completion for additional work")
-	}
-	if len(p.Before) != 0 && stepIDExists(plan.Steps, p.ID) {
-		return newFailure(KindInvalidOperation, "fold_event", fmt.Sprintf("inserted step %q already exists", p.ID), false, "choose a new step id")
 	}
 	for _, id := range p.Before {
 		index := -1

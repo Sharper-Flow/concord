@@ -52,6 +52,54 @@ func workVersionForWorkflow(t *testing.T, s *store.Store) (int64, error) {
 	return version, err
 }
 
+func TestWorkflowInsertBeforeRetry(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	version := seedAgentWorkflow(t, s, grant)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	input := retryJSON(map[string]any{
+		"work_id": "work-1", "expected_version": version, "action_id": "insert_step",
+		"fields":          map[string]any{"id": "plan-review", "after": []string{"clarify"}, "before": []string{"implement"}, "helper": "concord-review", "reviewed": true, "reason": "review plan"},
+		"idempotency_key": "insert-before-retry",
+	})
+	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}
+	first, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || first.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("initial insert response=%+v error=%+v err=%v", first, first.Error, err)
+	}
+	var firstVersion int64
+	var firstPlan string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT w.version,i.step_plan FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id='work-1'`).Scan(&firstVersion, &firstPlan); err != nil {
+		t.Fatal(err)
+	}
+	replay, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(first.Result) {
+		t.Fatalf("replay=%+v err=%v; want original result=%s", replay, err, first.Result)
+	}
+	var secondVersion int64
+	var secondPlan string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT w.version,i.step_plan FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id='work-1'`).Scan(&secondVersion, &secondPlan); err != nil {
+		t.Fatal(err)
+	}
+	var plan store.WorkflowStepPlan
+	if err := json.Unmarshal([]byte(secondPlan), &plan); err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, step := range plan.Steps {
+		if step.ID == "plan-review" {
+			count++
+		}
+	}
+	if firstVersion != secondVersion || firstPlan != secondPlan || count != 1 {
+		t.Fatalf("replay changed plan or version, or inserted %d review steps", count)
+	}
+}
+
 func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

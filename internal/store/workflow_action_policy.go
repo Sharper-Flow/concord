@@ -315,6 +315,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"insert_step": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionRefField("id", true),
 		actionIDListField("after", true, 1, 16),
+		actionIDListField("before", false, 1, 16),
 		actionRefField("skill", false), actionRefField("helper", false),
 		WorkflowPayloadField{Name: "reviewed", ValueType: PayloadBoolean},
 		WorkflowPayloadField{Name: "reason", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(2048)},

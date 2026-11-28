@@ -7,6 +7,43 @@ import (
 	"time"
 )
 
+func TestWorkflowStepPlanReasonImmutable(t *testing.T) {
+	old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	next := stepPlanCopy(old)
+	next.Steps[0].Reason = "changed reason"
+	if err := ValidateStepPlanWrite(&old, next); err == nil {
+		t.Fatal("existing step reason change accepted")
+	}
+}
+
+func TestWorkflowStepPlanEdgeInsertionShape(t *testing.T) {
+	old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	old.Steps = append(old.Steps, WorkflowPlanStep{ID: "optional", After: []string{}})
+	valid := stepPlanCopy(old)
+	valid.Steps[2].After = append(valid.Steps[2].After, "extra")
+	valid.Steps = append(valid.Steps, WorkflowPlanStep{ID: "extra", After: []string{"clarify"}})
+	if err := ValidateStepPlanWrite(&old, valid); err != nil {
+		t.Fatalf("valid edge insertion refused: %v", err)
+	}
+	for name, mutate := range map[string]func(*WorkflowStepPlan){
+		"reordered":        func(p *WorkflowStepPlan) { p.Steps[0], p.Steps[1] = p.Steps[1], p.Steps[0] },
+		"removed optional": func(p *WorkflowStepPlan) { p.Steps = append(p.Steps[:len(p.Steps)-2], p.Steps[len(p.Steps)-1]) },
+		"completed other": func(p *WorkflowStepPlan) {
+			p.Steps[0].Attempts = []WorkflowPlanAttempt{{Note: "done", CompletedAt: "2026-01-01"}}
+		},
+		"two additions": func(p *WorkflowStepPlan) { p.Steps = append(p.Steps, WorkflowPlanStep{ID: "another"}) },
+		"type switch":   func(p *WorkflowStepPlan) { p.Type = WorkflowStepPlanFix },
+	} {
+		t.Run(name, func(t *testing.T) {
+			next := stepPlanCopy(valid)
+			mutate(&next)
+			if err := ValidateStepPlanWrite(&old, next); err == nil {
+				t.Fatal("invalid edge insertion accepted")
+			}
+		})
+	}
+}
+
 func TestWorkflowStepPlanWriteRegression(t *testing.T) {
 	base := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
 	attempt := WorkflowPlanAttempt{Note: "done", CompletedAt: "2026-01-01T00:00:00Z"}
@@ -429,7 +466,7 @@ func reviewedAttempt(note string) WorkflowPlanAttempt {
 func stepPlanCopy(plan WorkflowStepPlan) WorkflowStepPlan {
 	copied := WorkflowStepPlan{SchemaVersion: plan.SchemaVersion, Type: plan.Type, Steps: make([]WorkflowPlanStep, len(plan.Steps))}
 	for index, step := range plan.Steps {
-		stepCopy := WorkflowPlanStep{ID: step.ID, Required: step.Required, After: append([]string{}, step.After...), Skill: step.Skill, Helper: step.Helper, Reviewed: step.Reviewed}
+		stepCopy := WorkflowPlanStep{ID: step.ID, Required: step.Required, After: append([]string{}, step.After...), Skill: step.Skill, Helper: step.Helper, Reviewed: step.Reviewed, Reason: step.Reason}
 		if step.Attempts != nil {
 			stepCopy.Attempts = append([]WorkflowPlanAttempt{}, step.Attempts...)
 		}

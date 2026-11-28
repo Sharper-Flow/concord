@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"time"
 )
@@ -141,6 +142,7 @@ type workflowStepInsertedPayload struct {
 	WorkflowVersionFields
 	ID       string   `json:"id"`
 	After    []string `json:"after"`
+	Before   []string `json:"before,omitempty"`
 	Skill    *string  `json:"skill,omitempty"`
 	Helper   *string  `json:"helper,omitempty"`
 	Reviewed bool     `json:"reviewed"`
@@ -229,6 +231,8 @@ func mergeWorkflowPlanTemplate(old, template WorkflowStepPlan) WorkflowStepPlan 
 	return old
 }
 
+// foldWorkflowStepInserted adds an optional step and attaches it as a
+// prerequisite only to existing steps without completion, start or checkpoint.
 func foldWorkflowStepInserted(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowStepInsertedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -255,6 +259,34 @@ func foldWorkflowStepInserted(ctx context.Context, tx *sql.Tx, event Event) erro
 	}
 	if len(plan.Steps) >= workflowStepPlanMaxSteps {
 		return newFailure(KindInvalidOperation, "fold_event", "workflow plan has reached the 64-step limit", false, "use link_successor before workflow completion for additional work")
+	}
+	for _, id := range p.Before {
+		index := -1
+		for i := range plan.Steps {
+			if plan.Steps[i].ID == id {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return newFailure(KindInvalidOperation, "fold_event", fmt.Sprintf("before step %q does not exist", id), false, "reread the plan")
+		}
+		step := &plan.Steps[index]
+		if len(step.Attempts) != 0 {
+			return newFailure(KindInvalidOperation, "fold_event", fmt.Sprintf("before step %q has a completion attempt", id), false, "choose an unstarted step")
+		}
+		var started, checkpointed bool
+		err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_step_epochs WHERE work_id=? AND step_id=? AND latest_start_seq>0), EXISTS(SELECT 1 FROM workflow_checkpoints WHERE work_id=? AND step_id=?)`, event.SubjectID, id, event.SubjectID, id).Scan(&started, &checkpointed)
+		if err != nil {
+			return workflowProjectionError(err, "cannot inspect before step execution")
+		}
+		if started {
+			return newFailure(KindInvalidOperation, "fold_event", fmt.Sprintf("before step %q has an execution start", id), false, "choose an unstarted step")
+		}
+		if checkpointed {
+			return newFailure(KindInvalidOperation, "fold_event", fmt.Sprintf("before step %q has a checkpoint", id), false, "choose an unstarted step")
+		}
+		step.After = append(step.After, p.ID)
 	}
 	plan.Steps = append(plan.Steps, WorkflowPlanStep{ID: p.ID, After: p.After, Skill: p.Skill, Helper: p.Helper, Reviewed: p.Reviewed, Reason: p.Reason})
 	return writeWorkflowPlanTx(ctx, tx, event.SubjectID, *plan)

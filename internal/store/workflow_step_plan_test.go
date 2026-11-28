@@ -7,6 +7,109 @@ import (
 	"time"
 )
 
+func TestWorkflowStepPlanAfterEncodingImmutable(t *testing.T) {
+	for _, oldNil := range []bool{false, true} {
+		name := "empty to nil"
+		if oldNil {
+			name = "nil to empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+			next := stepPlanCopy(old)
+			if oldNil {
+				old.Steps[0].After = nil
+				next.Steps[0].After = []string{}
+			} else {
+				next.Steps[0].After = nil
+			}
+			err := ValidateStepPlanWrite(&old, next)
+			if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), "after edges never change") {
+				t.Fatalf("encoding-only write = %v; want unchanged-after refusal", err)
+			}
+		})
+	}
+}
+
+func TestWorkflowStepPlanTypeSwitchAfterEncodingImmutable(t *testing.T) {
+	old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	next := stepPlanCopy(old)
+	next.Type = WorkflowStepPlanFix
+	next.Steps[0].After = nil
+	next.Steps = append(next.Steps, stepPlanTemplateOrFatal(t, WorkflowStepPlanFix).Steps[0])
+	err := ValidateStepPlanWrite(&old, next)
+	if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), "after edges never change") {
+		t.Fatalf("encoding-only switch = %v; want unchanged-after refusal", err)
+	}
+}
+
+func TestWorkflowStepPlanInsertionAfterNil(t *testing.T) {
+	old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	old.Steps[0].After = nil
+	next := stepPlanCopy(old)
+	next.Steps[0].After = append(next.Steps[0].After, "extra")
+	next.Steps = append(next.Steps, WorkflowPlanStep{ID: "extra", After: []string{}})
+	if err := ValidateStepPlanWrite(&old, next); err != nil {
+		t.Fatalf("insertion after nil refused: %v", err)
+	}
+	raw, err := json.Marshal(next.Steps[0])
+	if err != nil || !strings.Contains(string(raw), `"after":["extra"]`) {
+		t.Fatalf("inserted prerequisite encoding = %s: %v", raw, err)
+	}
+}
+
+func TestWorkflowStepPlanReasonImmutable(t *testing.T) {
+	old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	next := stepPlanCopy(old)
+	next.Steps[0].Reason = "changed reason"
+	if err := ValidateStepPlanWrite(&old, next); err == nil {
+		t.Fatal("existing step reason change accepted")
+	}
+}
+
+func TestWorkflowStepPlanEdgeInsertionShape(t *testing.T) {
+	old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	old.Steps = append(old.Steps, WorkflowPlanStep{ID: "optional", After: []string{}})
+	valid := stepPlanCopy(old)
+	valid.Steps[2].After = append(valid.Steps[2].After, "extra")
+	valid.Steps = append(valid.Steps, WorkflowPlanStep{ID: "extra", After: []string{"clarify"}})
+	if err := ValidateStepPlanWrite(&old, valid); err != nil {
+		t.Fatalf("valid edge insertion refused: %v", err)
+	}
+	for name, mutate := range map[string]func(*WorkflowStepPlan){
+		"reordered":          func(p *WorkflowStepPlan) { p.Steps[0], p.Steps[1] = p.Steps[1], p.Steps[0] },
+		"replaced optional":  func(p *WorkflowStepPlan) { p.Steps[len(p.Steps)-2].ID = "replacement" },
+		"null prerequisites": func(p *WorkflowStepPlan) { p.Steps[0].After = nil },
+		"prepended edge":     func(p *WorkflowStepPlan) { p.Steps[2].After = []string{"extra", "plan"} },
+		"completed other": func(p *WorkflowStepPlan) {
+			p.Steps[0].Attempts = []WorkflowPlanAttempt{{Note: "done", CompletedAt: "2026-01-01"}}
+		},
+		"changed reason": func(p *WorkflowStepPlan) { p.Steps[0].Reason = "changed reason" },
+		"two additions":  func(p *WorkflowStepPlan) { p.Steps = append(p.Steps, WorkflowPlanStep{ID: "another"}) },
+		"type switch":    func(p *WorkflowStepPlan) { p.Type = WorkflowStepPlanFix },
+	} {
+		t.Run(name, func(t *testing.T) {
+			next := stepPlanCopy(valid)
+			mutate(&next)
+			if err := ValidateStepPlanWrite(&old, next); err == nil {
+				t.Fatal("invalid edge insertion accepted")
+			}
+		})
+	}
+}
+
+func TestWorkflowStepPlanEdgeInsertionRefusesCompletedTarget(t *testing.T) {
+	old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	for i := range 2 {
+		old.Steps[i].Attempts = []WorkflowPlanAttempt{{Note: "done", CompletedAt: "2026-01-01"}}
+	}
+	next := stepPlanCopy(old)
+	next.Steps[1].After = append(next.Steps[1].After, "extra")
+	next.Steps = append(next.Steps, WorkflowPlanStep{ID: "extra", After: []string{"clarify"}})
+	if err := ValidateStepPlanWrite(&old, next); err == nil {
+		t.Fatal("edge insertion placed a completed step after an incomplete step")
+	}
+}
+
 func TestWorkflowStepPlanWriteRegression(t *testing.T) {
 	base := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
 	attempt := WorkflowPlanAttempt{Note: "done", CompletedAt: "2026-01-01T00:00:00Z"}
@@ -290,7 +393,7 @@ func TestWorkflowStepPlanCompletionOrderingAndImmutability(t *testing.T) {
 		t.Fatalf("attempt append refused: %v", err)
 	}
 
-	// After edges never change on an existing step.
+	// A write cannot remove an existing prerequisite.
 	redialed := stepPlanCopy(first)
 	redialed.Steps[1].After = []string{}
 	if err := ValidateStepPlanWrite(&first, redialed); err == nil || !strings.Contains(err.Error(), "after edges never change") {
@@ -308,17 +411,15 @@ func TestWorkflowStepPlanCompletionOrderingAndImmutability(t *testing.T) {
 func TestWorkflowStepPlanInsertAndSendBack(t *testing.T) {
 	plan := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
 
-	// An inserted step anchors itself after an existing step by declaring its
-	// own after edges; the existing steps never change, so the plan keeps its
-	// shape and the inserted step runs beside the steps that follow.
+	// An insertion that declares only its own prerequisites runs beside its
+	// anchor's other successors without changing their prerequisites.
 	inserted := stepPlanCopy(plan)
 	inserted.Steps = append(inserted.Steps, WorkflowPlanStep{ID: "send-back", Required: false, After: []string{"implement"}, Reviewed: true})
 	if err := ValidateStepPlanWrite(&plan, inserted); err != nil {
 		t.Fatalf("inserted step refused: %v", err)
 	}
 
-	// Rewiring an existing step's after edges to point at the inserted step
-	// is the forbidden shape: after edges never change.
+	// A separate write cannot add an edge to a step already in the plan.
 	rewired := stepPlanCopy(inserted)
 	rewired.Steps[3].After = []string{"send-back", "implement"}
 	if err := ValidateStepPlanWrite(&inserted, rewired); err == nil || !strings.Contains(err.Error(), "after edges never change") {
@@ -429,7 +530,7 @@ func reviewedAttempt(note string) WorkflowPlanAttempt {
 func stepPlanCopy(plan WorkflowStepPlan) WorkflowStepPlan {
 	copied := WorkflowStepPlan{SchemaVersion: plan.SchemaVersion, Type: plan.Type, Steps: make([]WorkflowPlanStep, len(plan.Steps))}
 	for index, step := range plan.Steps {
-		stepCopy := WorkflowPlanStep{ID: step.ID, Required: step.Required, After: append([]string{}, step.After...), Skill: step.Skill, Helper: step.Helper, Reviewed: step.Reviewed}
+		stepCopy := WorkflowPlanStep{ID: step.ID, Required: step.Required, After: append([]string{}, step.After...), Skill: step.Skill, Helper: step.Helper, Reviewed: step.Reviewed, Reason: step.Reason}
 		if step.Attempts != nil {
 			stepCopy.Attempts = append([]WorkflowPlanAttempt{}, step.Attempts...)
 		}

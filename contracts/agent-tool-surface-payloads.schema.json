@@ -5844,6 +5844,17 @@
               "maxItems": 16,
               "description": "Bounds: 1..16 items inclusive"
             },
+            "before": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/id",
+                "description": "Bounds: 1..128 code points inclusive"
+              },
+              "minItems": 1,
+              "maxItems": 16,
+              "description": "Bounds: 1..16 items inclusive"
+            },
             "skill": {
               "type": "string",
               "minLength": 1,

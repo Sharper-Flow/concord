@@ -154,6 +154,13 @@ column lists only what an architectural change adds:
 | Merge split | Delivery order and the dependencies between slices. |
 | Risks | Recovery where relevant, and test seams: prefer the highest existing seam that proves the outcome; name any lower-level check that adds distinct proof. |
 
+Add a reviewed step for the review helper after an already completed
+prerequisite and make implementation wait for it. The plan step stays open
+until contract approval, so it cannot serve as the prerequisite for this
+review. Have the helper independently review the recorded plan before approving
+the contract. Record corrections in the plan and have material revisions
+reviewed again before approval.
+
 Linear owns the problem, scope, planning choices, and sequence; the admitted
 Concord record holds the bounded execution design. Link these owners; do not
 mirror a planning backlog into Git, and do not make the plan a permanent

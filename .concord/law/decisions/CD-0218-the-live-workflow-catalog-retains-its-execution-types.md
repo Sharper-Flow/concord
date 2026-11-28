@@ -67,7 +67,11 @@ claim, timer service, or new authority for external effects.
 Each type's template sets its required steps, fix keeps diagnosis and the
 regression test that fails before the fix, and no agent waives a required step
 or an operator approval. The driving agent may insert steps between required
-steps; insertion never removes or rewrites a required step.
+steps; an insertion may add itself as the last prerequisite of required steps
+with no recorded execution start, checkpoint or completion attempt. An
+insertion never otherwise rewrites a required step and never removes one.
+The [workflow engine contract](../specs/workflow-engine-contract.md#12-workflow-types-prelude-and-step-admission)
+specifies eligible steps and the plan-write check.
 
 ### D3. Ordinary writes preserve authority and proof
 

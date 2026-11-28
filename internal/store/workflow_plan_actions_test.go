@@ -4,11 +4,297 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
+
+func TestWorkflowInsertReusedIDAtCapacity(t *testing.T) {
+	const workID = "work-insert-reused-capacity"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "plan", nil)
+	defer f.store.Close()
+	plan, err := readWorkflowPlanTx(t.Context(), f.store.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := len(plan.Steps); i < workflowStepPlanMaxSteps; i++ {
+		insertWorkflowPlanFixtureStep(t, f.store, workID, WorkflowPlanStep{ID: fmt.Sprintf("extra-%d", i), After: []string{"clarify"}})
+	}
+	for _, tc := range []struct {
+		name    string
+		payload json.RawMessage
+	}{
+		{"without before", json.RawMessage(`{"id":"plan","after":["clarify"],"reason":"additional work"}`)},
+		{"with before", json.RawMessage(`{"id":"plan","after":["clarify"],"before":["implement"],"reason":"additional work"}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runVerdictAction(t, f.store, workID, "insert_step", tc.payload)
+			if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), `inserted step "plan" already exists`) {
+				t.Fatalf("reused id at capacity = %v; want reused-id refusal", err)
+			}
+		})
+	}
+}
+
+func TestWorkflowInsertBeforeTargetRefusalAtCapacity(t *testing.T) {
+	const workID = "work-insert-target-capacity"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "plan", nil)
+	defer f.store.Close()
+	plan, err := readWorkflowPlanTx(t.Context(), f.store.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := len(plan.Steps); i < workflowStepPlanMaxSteps; i++ {
+		insertWorkflowPlanFixtureStep(t, f.store, workID, WorkflowPlanStep{ID: fmt.Sprintf("extra-%d", i), After: []string{"clarify"}})
+	}
+	for _, tc := range []struct {
+		name, payload, detail string
+	}{
+		{"missing", `{"id":"new-step","after":["clarify"],"before":["implement","missing"],"reason":"review"}`, `before step "missing" does not exist`},
+		{"completed", `{"id":"new-step","after":["clarify"],"before":["implement","clarify"],"reason":"review"}`, `before step "clarify" has a completion attempt`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const query = `SELECT w.version,i.step_plan FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`
+			var beforeVersion, afterVersion int64
+			var beforePlan, afterPlan string
+			if err := f.store.db.QueryRowContext(t.Context(), query, workID).Scan(&beforeVersion, &beforePlan); err != nil {
+				t.Fatal(err)
+			}
+			err := runVerdictAction(t, f.store, workID, "insert_step", json.RawMessage(tc.payload))
+			if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), tc.detail) {
+				t.Errorf("refusal = %v; want %q", err, tc.detail)
+			}
+			if err := f.store.db.QueryRowContext(t.Context(), query, workID).Scan(&afterVersion, &afterPlan); err != nil {
+				t.Fatal(err)
+			}
+			if beforeVersion != afterVersion || beforePlan != afterPlan {
+				t.Fatal("refusal changed version or plan")
+			}
+		})
+	}
+}
+
+func TestWorkflowInsertBeforeRefusals(t *testing.T) {
+	const invalidBefore = `workflow action payload field "before" has the wrong registered type or bounds`
+	for _, tc := range []struct {
+		name, payload, detail string
+		kind                  FailureKind
+	}{
+		{"unknown", `{"id":"extra","after":["clarify"],"before":["implement","missing"],"reason":"review"}`, `before step "missing" does not exist`, KindInvalidOperation},
+		{"completed", `{"id":"extra","after":["clarify"],"before":["clarify"],"reason":"review"}`, `before step "clarify" has a completion attempt`, KindInvalidOperation},
+		{"cycle", `{"id":"extra","after":["implement"],"before":["implement"],"reason":"review"}`, "cycle", KindInvalidOperation},
+		{"reused prerequisite id", `{"id":"plan","after":["clarify"],"before":["implement"],"reason":"review"}`, `inserted step "plan" already exists`, KindInvalidOperation},
+		{"duplicate before", `{"id":"extra","after":["clarify"],"before":["implement","implement"],"reason":"review"}`, invalidBefore, KindInvalidPayload},
+		{"empty before", `{"id":"extra","after":["clarify"],"before":[],"reason":"review"}`, invalidBefore, KindInvalidPayload},
+		{"too many", `{"id":"extra","after":["clarify"],"before":["aa","ab","ac","ad","ae","af","ag","ah","ai","aj","ak","al","am","an","ao","ap","aq"],"reason":"review"}`, invalidBefore, KindInvalidPayload},
+		{"invalid id", `{"id":"extra","after":["clarify"],"before":["not/an/id"],"reason":"review"}`, invalidBefore, KindInvalidPayload},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const workID = "work-insert-before-refusal"
+			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "plan", nil)
+			defer f.store.Close()
+			var version int64
+			var plan string
+			if err := f.store.db.QueryRowContext(t.Context(), `SELECT w.version,i.step_plan FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&version, &plan); err != nil {
+				t.Fatal(err)
+			}
+			err := runVerdictAction(t, f.store, workID, "insert_step", json.RawMessage(tc.payload))
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Kind != tc.kind || !strings.Contains(failure.Detail, tc.detail) {
+				t.Fatalf("refusal = %v; want %q", err, tc.detail)
+			}
+			var afterVersion int64
+			var afterPlan string
+			if err := f.store.db.QueryRowContext(t.Context(), `SELECT w.version,i.step_plan FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&afterVersion, &afterPlan); err != nil {
+				t.Fatal(err)
+			}
+			if version != afterVersion || plan != afterPlan {
+				t.Fatal("refusal changed version or plan")
+			}
+		})
+	}
+}
+
+func TestWorkflowInsertBeforeUnstartedStep(t *testing.T) {
+	const workID = "work-insert-before"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "plan", nil)
+	defer f.store.Close()
+	err := runVerdictAction(t, f.store, workID, "insert_step", json.RawMessage(`{"id":"plan-review","after":["clarify"],"before":["implement","review"],"helper":"concord-review","reviewed":true,"reason":"review plan"}`))
+	if err != nil {
+		t.Fatalf("insert before implement: %v", err)
+	}
+	plan, err := readWorkflowPlanTx(t.Context(), f.store.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, previous := range map[string]string{"implement": "plan", "review": "implement"} {
+		step, found := stepByID(plan.Steps, id)
+		if !found || len(step.After) != 2 || step.After[0] != previous || step.After[1] != "plan-review" {
+			t.Fatalf("%s edges = %v; want [%s plan-review]", id, step.After, previous)
+		}
+	}
+}
+
+func TestWorkflowInsertBeforeFrontier(t *testing.T) {
+	for _, planType := range []WorkflowStepPlanType{WorkflowStepPlanChange, WorkflowStepPlanFix} {
+		for _, closeFirst := range []bool{false, true} {
+			name := string(planType) + "-plan-open"
+			if closeFirst {
+				name = string(planType) + "-plan-closed"
+			}
+			t.Run(name, func(t *testing.T) {
+				const workID = "work-insert-frontier"
+				f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, planType, "plan", nil)
+				defer f.store.Close()
+				closePlan := func() {
+					t.Helper()
+					if err := runVerdictAction(t, f.store, workID, "record_plan", json.RawMessage(testWorkflowPlanDocument)); err != nil {
+						t.Fatalf("record plan: %v", err)
+					}
+					if err := runVerdictAction(t, f.store, workID, "complete_step", json.RawMessage(`{"step_id":"plan","note":"plan complete"}`)); err != nil {
+						t.Fatalf("complete plan: %v", err)
+					}
+				}
+				if closeFirst {
+					closePlan()
+				}
+				if err := runVerdictAction(t, f.store, workID, "insert_step", json.RawMessage(`{"id":"plan-review","after":["clarify"],"before":["implement"],"helper":"concord-review","reviewed":true,"reason":"review plan"}`)); err != nil {
+					t.Fatalf("insert review: %v", err)
+				}
+				if err := runVerdictAction(t, f.store, workID, "start_execution", json.RawMessage(`{}`)); !hasFailureKind(err, KindIllegalLifecycleTransition) || !strings.Contains(errDetail(err), "frontier") {
+					t.Fatalf("start before review = %v; want frontier refusal", err)
+				}
+				if err := runVerdictAction(t, f.store, workID, "complete_step", json.RawMessage(`{"step_id":"plan-review","note":"reviewed"}`)); !hasFailureKind(err, KindInvalidPayload) {
+					t.Fatalf("complete without review receipt = %v; want invalid_payload", err)
+				}
+				if !closeFirst {
+					closePlan()
+					if err := runVerdictAction(t, f.store, workID, "start_execution", json.RawMessage(`{}`)); !hasFailureKind(err, KindIllegalLifecycleTransition) || !strings.Contains(errDetail(err), "frontier") {
+						t.Fatalf("start after plan before review = %v; want frontier refusal", err)
+					}
+				}
+				if err := runVerdictAction(t, f.store, workID, "record_review", json.RawMessage(`{"step_id":"plan-review","note":"review complete","reviewer":"concord-review","result":"pass","commit":"commit:fixture","link":"https://example.com/review"}`)); err != nil {
+					t.Fatalf("record and complete review: %v", err)
+				}
+				if err := runVerdictAction(t, f.store, workID, "start_execution", json.RawMessage(`{}`)); err != nil {
+					t.Fatalf("start after review: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestWorkflowInsertBeforeStartedOrCheckpointed(t *testing.T) {
+	for _, action := range []string{"start_execution", "checkpoint_execution"} {
+		t.Run(action, func(t *testing.T) {
+			const workID = "work-insert-observed"
+			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", nil)
+			defer f.store.Close()
+			if err := runVerdictAction(t, f.store, workID, action, json.RawMessage(`{}`)); err != nil {
+				t.Fatalf("record %s: %v", action, err)
+			}
+			var starts, checkpoints int
+			if err := f.store.db.QueryRowContext(t.Context(), `SELECT (SELECT count(*) FROM workflow_step_epochs WHERE work_id=? AND step_id='implement' AND latest_start_seq>0),(SELECT count(*) FROM workflow_checkpoints WHERE work_id=? AND step_id='implement')`, workID, workID).Scan(&starts, &checkpoints); err != nil {
+				t.Fatal(err)
+			}
+			if action == "start_execution" && (starts != 1 || checkpoints != 0) || action == "checkpoint_execution" && (starts != 0 || checkpoints != 1) {
+				t.Fatalf("fixture starts=%d checkpoints=%d", starts, checkpoints)
+			}
+			var version, afterVersion int64
+			var plan, afterPlan string
+			query := `SELECT w.version,i.step_plan FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`
+			if err := f.store.db.QueryRowContext(t.Context(), query, workID).Scan(&version, &plan); err != nil {
+				t.Fatal(err)
+			}
+			err := runVerdictAction(t, f.store, workID, "insert_step", json.RawMessage(`{"id":"extra","after":["clarify"],"before":["implement"],"reason":"review"}`))
+			detail := `before step "implement" has an execution start`
+			if action == "checkpoint_execution" {
+				detail = `before step "implement" has a checkpoint`
+			}
+			if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), detail) {
+				t.Fatalf("insert refusal = %v; want %s", err, detail)
+			}
+			if err := f.store.db.QueryRowContext(t.Context(), query, workID).Scan(&afterVersion, &afterPlan); err != nil {
+				t.Fatal(err)
+			}
+			if version != afterVersion || plan != afterPlan {
+				t.Fatal("refusal changed version or plan")
+			}
+		})
+	}
+}
+
+func TestWorkflowInsertBeforeAfterReopen(t *testing.T) {
+	for _, action := range []string{"start_execution", "checkpoint_execution"} {
+		t.Run(action, func(t *testing.T) {
+			const workID = "work-insert-reopen"
+			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", nil)
+			defer f.store.Close()
+			if err := runVerdictAction(t, f.store, workID, action, json.RawMessage(`{}`)); err != nil {
+				t.Fatalf("record %s: %v", action, err)
+			}
+			payload := json.RawMessage(`{"id":"extra","after":["clarify"],"before":["implement"],"reason":"review"}`)
+			err := runVerdictAction(t, f.store, workID, "insert_step", payload)
+			detail := `before step "implement" has an execution start`
+			if action == "checkpoint_execution" {
+				detail = `before step "implement" has a checkpoint`
+			}
+			if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), detail) {
+				t.Fatalf("before cancellation insertion = %v; want %s", err, detail)
+			}
+			cancelAndReopenInsertFixture(t, f.store, workID)
+			if err := runVerdictAction(t, f.store, workID, "insert_step", payload); err != nil {
+				t.Fatalf("insertion after reopen: %v", err)
+			}
+			plan, err := readWorkflowPlanTx(t.Context(), f.store.db, workID)
+			if err != nil || plan == nil {
+				t.Fatalf("read plan: %v", err)
+			}
+			step, found := stepByID(plan.Steps, "implement")
+			if !found || len(step.After) != 2 || step.After[0] != "plan" || step.After[1] != "extra" {
+				t.Fatalf("implement prerequisites = %v", step.After)
+			}
+		})
+	}
+}
+
+func TestWorkflowInsertBeforeCompletedAfterReopen(t *testing.T) {
+	const workID = "work-insert-completed-reopen"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", nil)
+	defer f.store.Close()
+	cancelAndReopenInsertFixture(t, f.store, workID)
+	err := runVerdictAction(t, f.store, workID, "insert_step", json.RawMessage(`{"id":"extra","after":["clarify"],"before":["plan"],"reason":"review"}`))
+	if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), `before step "plan" has a completion attempt`) {
+		t.Fatalf("completed target after reopen = %v", err)
+	}
+}
+
+func cancelAndReopenInsertFixture(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	var lifecycle string
+	if err := s.db.QueryRowContext(t.Context(), `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, s, workID)
+	if err := applyWorkEvent(t, s, workTransitionEvent("cancel-"+workID, workID, lifecycle, "cancelled", version, version+1), workVersion(workID, version)); err != nil {
+		t.Fatalf("cancel work: %v", err)
+	}
+	var starts, checkpoints int
+	if err := s.db.QueryRowContext(t.Context(), `SELECT (SELECT count(*) FROM workflow_step_epochs WHERE work_id=?),(SELECT count(*) FROM workflow_checkpoints WHERE work_id=?)`, workID, workID).Scan(&starts, &checkpoints); err != nil {
+		t.Fatal(err)
+	}
+	if starts != 0 || checkpoints != 0 {
+		t.Fatalf("cancellation retained %d starts and %d checkpoints", starts, checkpoints)
+	}
+	version = readWorkVersion(t, s, workID)
+	if err := applyWorkEvent(t, s, workReopenedEvent("reopen-"+workID, workID, "cancelled", version, version+1), workVersion(workID, version)); err != nil {
+		t.Fatalf("reopen work: %v", err)
+	}
+}
 
 func TestWorkflowInsertUnreviewedHelperAfterReviewedStep(t *testing.T) {
 	const workID = "work-insert-unreviewed-helper"

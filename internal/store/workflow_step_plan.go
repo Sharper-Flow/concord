@@ -12,7 +12,7 @@ import (
 // picked, when a step is inserted, and when a step completes; every write
 // passes ValidateStepPlanWrite, the one function that compares the new plan
 // with the old one and refuses a plan that fails its schema, contains a
-// cycle, removes a required step, changes a step's after edges, completes a
+// cycle, removes a required step, improperly changes after edges, completes a
 // step before every step it comes after, or alters a completed step.
 
 // WorkflowStepPlanType names one workflow type a driving agent may pick after
@@ -177,9 +177,10 @@ func WorkflowStepPlanTemplateActions(planType WorkflowStepPlanType, stepID strin
 // ValidateStepPlanWrite is the one check every plan write passes. old is nil
 // when the type is first picked; afterwards old is the stored plan. It refuses
 // a write whose new plan fails the plan schema, contains a cycle, removes a
-// required step, changes an existing step's after edges, completes a step
-// before every step it comes after, or alters a completed step. A repeated
-// step appends another attempt instead of altering the completed one.
+// required step, improperly changes existing after edges, completes a step
+// before every step it comes after, or alters a completed step. An insertion
+// may append its ID to existing after edges in an otherwise unchanged plan.
+// A repeated step appends another attempt instead of altering the completed one.
 func ValidateStepPlanWrite(old *WorkflowStepPlan, updated WorkflowStepPlan) error {
 	if err := validateStepPlanShape(updated); err != nil {
 		return err
@@ -315,15 +316,10 @@ func validateStepPlanInitialCopy(plan WorkflowStepPlan) error {
 // workflowPlanStepEqual compares two plan steps field by field, including
 // their after edges; the plan step type holds slices, so == cannot compare it.
 func workflowPlanStepEqual(left, right WorkflowPlanStep) bool {
-	if left.ID != right.ID || left.Required != right.Required || left.Reviewed != right.Reviewed ||
+	if left.ID != right.ID || left.Required != right.Required || left.Reviewed != right.Reviewed || left.Reason != right.Reason ||
 		!equalOptionalString(left.Skill, right.Skill) || !equalOptionalString(left.Helper, right.Helper) ||
-		len(left.After) != len(right.After) || len(left.Attempts) != len(right.Attempts) {
+		!equalWorkflowAfter(left.After, right.After) || len(left.Attempts) != len(right.Attempts) {
 		return false
-	}
-	for index, after := range left.After {
-		if right.After[index] != after {
-			return false
-		}
 	}
 	for index, attempt := range left.Attempts {
 		if right.Attempts[index] != attempt {
@@ -333,12 +329,28 @@ func workflowPlanStepEqual(left, right WorkflowPlanStep) bool {
 	return true
 }
 
+// equalWorkflowAfter preserves the stored JSON distinction between null and [].
+func equalWorkflowAfter(left, right []string) bool {
+	return (left == nil) == (right == nil) && slices.Equal(left, right)
+}
+
 // validateStepPlanContinuation holds the step-insert and step-completion
 // writes, and the type switch that adds the new type's missing required
-// steps while keeping completed steps.
+// steps while keeping completed steps. An edge-changing insertion must leave
+// existing steps in order and otherwise unchanged.
 func validateStepPlanContinuation(old, updated WorkflowStepPlan) error {
 	refuse := func(detail string) error {
 		return newFailure(KindInvalidOperation, "workflow_step_plan", detail, false, "reread the plan and resend the write")
+	}
+	edgesChanged := false
+	for _, previous := range old.Steps {
+		if current, found := stepByID(updated.Steps, previous.ID); found && !equalWorkflowAfter(previous.After, current.After) {
+			edgesChanged = true
+			break
+		}
+	}
+	if edgesChanged {
+		return validateStepPlanEdgeInsertion(old, updated, refuse)
 	}
 	switching := updated.Type != old.Type
 	if switching {
@@ -374,6 +386,32 @@ func validateStepPlanContinuation(old, updated WorkflowStepPlan) error {
 		}
 		if len(step.Attempts) > 0 && !stepIDExists(updated.Steps, step.ID) {
 			return refuse("a completed step is never removed")
+		}
+	}
+	return nil
+}
+
+func validateStepPlanEdgeInsertion(old, updated WorkflowStepPlan, refuse func(string) error) error {
+	if old.Type != updated.Type || len(updated.Steps) != len(old.Steps)+1 {
+		return refuse("an existing step's after edges never change except for a single insertion")
+	}
+	added := updated.Steps[len(old.Steps)]
+	if added.Required || len(added.Attempts) != 0 || stepIDExists(old.Steps, added.ID) {
+		return refuse("an edge insertion adds one incomplete optional step")
+	}
+	for i, previous := range old.Steps {
+		current := updated.Steps[i]
+		if !equalWorkflowAfter(previous.After, current.After) {
+			if len(previous.Attempts) != 0 {
+				return refuse("a completed step's after edges never change")
+			}
+			if len(current.After) != len(previous.After)+1 || !slices.Equal(current.After[:len(previous.After)], previous.After) || current.After[len(previous.After)] != added.ID {
+				return refuse("an existing step's after edges never change except for a single insertion")
+			}
+			current.After = previous.After
+		}
+		if !workflowPlanStepEqual(previous, current) {
+			return refuse("an edge insertion never changes existing steps otherwise")
 		}
 	}
 	return nil
@@ -437,10 +475,10 @@ func validateStepPlanExistingStep(oldSteps []WorkflowPlanStep, previous, step Wo
 			return 0, refuse("a completed step's attempts are never altered")
 		}
 	}
-	if !slices.Equal(previous.After, step.After) {
+	if !equalWorkflowAfter(previous.After, step.After) {
 		return 0, refuse("an existing step's after edges never change")
 	}
-	if previous.Required != step.Required || previous.Reviewed != step.Reviewed || !equalOptionalString(previous.Skill, step.Skill) || !equalOptionalString(previous.Helper, step.Helper) {
+	if previous.Required != step.Required || previous.Reviewed != step.Reviewed || previous.Reason != step.Reason || !equalOptionalString(previous.Skill, step.Skill) || !equalOptionalString(previous.Helper, step.Helper) {
 		return 0, refuse("an existing step's metadata never changes")
 	}
 	if len(step.Attempts) > len(previous.Attempts) {

@@ -100,6 +100,22 @@ DROP TABLE workflow_contract_law_modifications;
 DROP TABLE runtime_state_writers;
 `,
 	},
+	{
+		Version: 202, Name: "workflow_diagnosis_records", Breaking: true, FoldMaintained: "advance",
+		SQL: `
+CREATE TABLE workflow_diagnosis_records (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version INTEGER NOT NULL CHECK(work_version > 0),
+    payload TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload)='object'),
+    recorded_at TEXT,
+    actor TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    event_ref TEXT
+);
+CREATE TRIGGER workflow_diagnosis_records_guard_insert BEFORE INSERT ON workflow_diagnosis_records BEGIN SELECT RAISE(ABORT, 'workflow_diagnosis_records is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_diagnosis_records_guard_update BEFORE UPDATE ON workflow_diagnosis_records BEGIN SELECT RAISE(ABORT, 'workflow_diagnosis_records is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_diagnosis_records_guard_delete BEFORE DELETE ON workflow_diagnosis_records BEGIN SELECT RAISE(ABORT, 'workflow_diagnosis_records is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

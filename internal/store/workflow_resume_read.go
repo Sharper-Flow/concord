@@ -3,15 +3,86 @@ package store
 import (
 	"context"
 	"database/sql"
+	"unicode/utf8"
 )
 
-// The one resume view. A session resuming a work item reads the item's stored
+type WorkflowRetainedDocument struct {
+	RecordedWorkVersion int64  `json:"recorded_work_version"`
+	Document            string `json:"document"`
+}
+
+type WorkflowDocuments struct {
+	Plan      *WorkflowRetainedDocument `json:"plan,omitempty"`
+	Clarify   *WorkflowRetainedDocument `json:"clarify,omitempty"`
+	Diagnosis *WorkflowRetainedDocument `json:"diagnosis,omitempty"`
+}
+
+type WorkflowDocumentsRead struct {
+	SourceVersionWatermark int64             `json:"-"`
+	WorkID                 string            `json:"work_id"`
+	Version                int64             `json:"version"`
+	Documents              WorkflowDocuments `json:"documents"`
+}
+
+func ReadWorkflowDocuments(ctx context.Context, s *Store, workID string) (WorkflowDocumentsRead, error) {
+	var out WorkflowDocumentsRead
+	if s == nil || s.db == nil {
+		return out, newFailure(KindUnavailable, "C19.Resume", "store is not open", false, "open the authority database")
+	}
+	if len(workID) < 2 || len(workID) > 128 {
+		return out, newFailure(KindInvalidPayload, "C19.Resume", "work ID is out of bounds", false, "supply one bounded work ID")
+	}
+	tx, err := beginReadTx(ctx, s.db)
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "C19.Resume", "cannot open a consistent documents read", true, "retry once the database is readable", err)
+	}
+	defer tx.Rollback()
+	out.SourceVersionWatermark, err = storeRevision(ctx, tx)
+	if err != nil {
+		return out, err
+	}
+	if err := publishedWorkAbsenceQ(ctx, tx, workID, "C19.Resume"); err != nil {
+		return out, err
+	}
+	err = tx.QueryRowContext(ctx, `SELECT w.version FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&out.Version)
+	if err == sql.ErrNoRows {
+		return out, newFailure(KindProjectionNotFound, "C19.Resume", "work item or workflow instance is not recorded", false, "reread_entities")
+	}
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "C19.Resume", "cannot read the work version", true, "retry once the database is readable", err)
+	}
+	out.WorkID = workID
+	for _, item := range []struct {
+		query  string
+		target **WorkflowRetainedDocument
+	}{
+		{`SELECT work_version,payload FROM workflow_plan_records WHERE work_id=?`, &out.Documents.Plan},
+		{`SELECT work_version,payload FROM workflow_clarify_records WHERE work_id=?`, &out.Documents.Clarify},
+		{`SELECT work_version,payload FROM workflow_diagnosis_records WHERE work_id=?`, &out.Documents.Diagnosis},
+	} {
+		var record WorkflowRetainedDocument
+		err := tx.QueryRowContext(ctx, item.query, workID).Scan(&record.RecordedWorkVersion, &record.Document)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return out, wrapFailure(KindUnavailable, "C19.Resume", "cannot read a retained workflow document", true, "retry once the database is readable", err)
+		}
+		if record.RecordedWorkVersion < 1 || !utf8.ValidString(record.Document) || !isJSONObject([]byte(record.Document)) {
+			return out, newFailure(KindInvariantViolation, "C19.Resume", "retained workflow document is invalid", false, "restore a verified backup into a new path with concord restore, then swap")
+		}
+		*item.target = &record
+	}
+	return out, nil
+}
+
+// The default resume view. A session resuming a work item reads the item's stored
 // step plan with the derived next steps and the work version. Before the type
 // is picked, the stored plan has no frontier: the plan is nil and the read
 // derives the remaining opening steps from the opening-phase prelude, which
 // records the intake outcome and type-pick reason.
 
-// WorkflowResumeRead is the single resume read's answer. Steps are the stored
+// WorkflowResumeRead is the default resume read's answer. Steps are the stored
 // plan exactly as written, attempts included; NextSteps holds the ids of the
 // derived frontier steps in plan order; OpeningSteps replaces Steps before the
 // type is picked. A terminal item still answers with its stored plan but
@@ -27,7 +98,7 @@ type WorkflowResumeRead struct {
 	OpeningSteps           []string             `json:"opening_steps,omitempty"`
 }
 
-// ReadWorkflowResume answers the one resume read for one work item. The read
+// ReadWorkflowResume answers the default resume view for one work item. The read
 // derives; it never writes. An item whose execution state is not retained
 // answers the typed published-absence failure, like every per-item read.
 func ReadWorkflowResume(ctx context.Context, s *Store, workID string) (WorkflowResumeRead, error) {

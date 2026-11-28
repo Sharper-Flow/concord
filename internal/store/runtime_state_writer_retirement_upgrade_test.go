@@ -36,7 +36,7 @@ func TestRuntimeStateWriterRetirementUpgrade(t *testing.T) {
 	if got := retirementUpgradeRows(t, db, writerSchema); !reflect.DeepEqual(got, [][]any{{"index", "sqlite_autoindex_runtime_state_writers_1"}, {"table", "runtime_state_writers"}}) {
 		t.Fatalf("predecessor writer schema = %v", got)
 	}
-	const survivingSchema = `SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND tbl_name != 'runtime_state_writers' ORDER BY type,name`
+	const survivingSchema = `SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND tbl_name NOT IN ('runtime_state_writers','workflow_diagnosis_records') ORDER BY type,name`
 	schema := retirementUpgradeRows(t, db, survivingSchema)
 	snapshot := filepath.Join(t.TempDir(), "predecessor.db")
 	manifest, err := BackupDatabase(ctx, path, snapshot)
@@ -86,6 +86,10 @@ func TestRuntimeStateWriterRetirementUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	current := designProposalSnapshot(t, db)
+	if rows, ok := current["workflow_diagnosis_records"]; !ok || len(rows) != 0 {
+		t.Fatalf("diagnosis records after upgrade = %v, present=%v", rows, ok)
+	}
+	delete(current, "workflow_diagnosis_records")
 	if got := retirementUpgradeRows(t, db, writerSchema); len(got) != 0 {
 		t.Fatalf("writer table or automatic index survived: %v", got)
 	}
@@ -110,7 +114,7 @@ func TestRuntimeStateWriterRetirementUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RestoredDatabase.SchemaVersion != 201 {
+	if report.RestoredDatabase.SchemaVersion != 202 {
 		t.Fatalf("restored schema = %d", report.RestoredDatabase.SchemaVersion)
 	}
 	restoredDB, err := sql.Open(driverName, readOnlyDataSource(restored))
@@ -119,6 +123,10 @@ func TestRuntimeStateWriterRetirementUpgrade(t *testing.T) {
 	}
 	defer restoredDB.Close()
 	got := designProposalSnapshot(t, restoredDB)
+	if rows, ok := got["workflow_diagnosis_records"]; !ok || len(rows) != 0 {
+		t.Fatalf("diagnosis records after restore = %v, present=%v", rows, ok)
+	}
+	delete(got, "workflow_diagnosis_records")
 	delete(got, "schema")
 	delete(got, "schema_migrations")
 	delete(got, "store_revision")

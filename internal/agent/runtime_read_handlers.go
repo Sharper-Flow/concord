@@ -225,11 +225,39 @@ type resumeInput struct {
 	WorkID string    `json:"work_id"`
 	Page   pageInput `json:"page"`
 	Limit  int       `json:"limit,omitempty"`
+	View   string    `json:"view,omitempty"`
 }
 
 type resumeCursor struct {
 	Digest string `json:"digest"`
 	Offset int    `json:"offset"`
+}
+
+func (r runtime) resumeDocument(ctx context.Context, in resumeInput) (any, store.ResultMeta, []byte, string, bool, error) {
+	var result any
+	var meta store.ResultMeta
+	schema := "resume_read_document"
+	if in.View == "documents" {
+		documents, err := store.ReadWorkflowDocuments(ctx, r.Store, in.WorkID)
+		if err != nil {
+			return nil, meta, nil, "", true, err
+		}
+		result, meta.SourceVersionWatermark, schema = documents, documents.SourceVersionWatermark, "resume_documents_document"
+	} else {
+		resume, err := store.ReadWorkflowResume(ctx, r.Store, in.WorkID)
+		if err != nil {
+			return nil, meta, nil, "", true, err
+		}
+		result, meta.SourceVersionWatermark = resume, resume.SourceVersionWatermark
+	}
+	doc, err := json.Marshal(result)
+	if err != nil {
+		return nil, meta, nil, "", false, err
+	}
+	if err := payloadschema.Validate(schema, doc); err != nil {
+		return nil, meta, nil, "", false, err
+	}
+	return result, meta, doc, mutationDocumentDigest(doc), false, nil
 }
 
 func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
@@ -253,24 +281,18 @@ func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelop
 			return coreError(base, "invalid_cursor", "resume cursor is malformed", "restart_query", false), nil
 		}
 	}
-	resume, err := store.ReadWorkflowResume(ctx, r.Store, in.WorkID)
+	result, meta, doc, digest, readFailed, err := r.resumeDocument(ctx, in)
 	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{SourceVersionWatermark: resume.SourceVersionWatermark}
-	doc, err := json.Marshal(resume)
-	if err != nil {
+		if readFailed {
+			return failureEnvelope(base, err), nil
+		}
 		return base, err
 	}
-	if err := payloadschema.Validate("resume_read_document", doc); err != nil {
-		return base, err
-	}
-	digest := mutationDocumentDigest(doc)
 	if inner != "" && (cursor.Digest != digest || cursor.Offset >= len(doc) || !utf8.RuneStart(doc[cursor.Offset])) {
 		return coreError(base, "invalid_cursor", "resume document changed or cursor offset is invalid; restart the read", "restart_query", false), nil
 	}
 	if inner == "" {
-		response, err := r.resultEnvelope(base, meta, resume)
+		response, err := r.resultEnvelope(base, meta, result)
 		if err != nil {
 			return response, err
 		}

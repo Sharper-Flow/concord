@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -15,6 +16,19 @@ func TestOrdinaryDiagnosisReplacementRollback(t *testing.T) {
 	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("first reproduction", "first cause"), f.owner, "first"); err != nil {
 		t.Fatal(err)
 	}
+	assertDocument := func(reproduction, cause string) {
+		t.Helper()
+		var raw string
+		var count int
+		if err := s.db.QueryRow(`SELECT count(*), COALESCE(max(payload),'') FROM workflow_diagnosis_records WHERE work_id=?`, work).Scan(&count, &raw); err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]string
+		if err := json.Unmarshal([]byte(raw), &got); err != nil || count != 1 || len(got) != 2 || got["reproduction"] != reproduction || got["root_cause"] != cause {
+			t.Fatalf("diagnosis count=%d payload=%s err=%v", count, raw, err)
+		}
+	}
+	assertDocument("first reproduction", "first cause")
 	version := readWorkVersion(t, s, work)
 	if err := runVerdictActionAtVersion(t, s, work, "record_diagnosis", diagnosisPayload("stale reproduction", "stale cause"), version-1, f.owner); err == nil {
 		t.Fatal("stale diagnosis was accepted")
@@ -22,14 +36,41 @@ func TestOrdinaryDiagnosisReplacementRollback(t *testing.T) {
 	if got := readWorkVersion(t, s, work); got != version {
 		t.Fatalf("stale diagnosis changed version: %d -> %d", version, got)
 	}
-	if _, err := s.db.Exec(`CREATE TRIGGER fail_diagnosis_receipt BEFORE INSERT ON effect_receipts WHEN NEW.kind='workflow.diagnosis_recorded' BEGIN SELECT RAISE(ABORT, 'injected diagnosis failure'); END`); err != nil {
+	assertDocument("first reproduction", "first cause")
+	type diagnosisRow struct {
+		payload, actor, eventRef string
+		workVersion              int64
+	}
+	readRow := func() diagnosisRow {
+		t.Helper()
+		var row diagnosisRow
+		if err := s.db.QueryRow(`SELECT payload,work_version,actor,event_ref FROM workflow_diagnosis_records WHERE work_id=?`, work).Scan(&row.payload, &row.workVersion, &row.actor, &row.eventRef); err != nil {
+			t.Fatal(err)
+		}
+		return row
+	}
+	before := readRow()
+	if _, err := s.db.Exec(`CREATE TRIGGER fail_diagnosis_receipt BEFORE INSERT ON effect_receipts
+WHEN NEW.kind='workflow.action_completed' AND NEW.subject_id='diagnosis-replacement-rollback'
+BEGIN
+  SELECT CASE WHEN EXISTS (
+    SELECT 1 FROM workflow_diagnosis_records WHERE work_id=NEW.subject_id
+    AND json_extract(payload,'$.reproduction')='second reproduction'
+    AND json_extract(payload,'$.root_cause')='second cause'
+  ) THEN RAISE(ABORT, 'injected post-upsert failure')
+    ELSE RAISE(ABORT, 'replacement not observed before failure') END;
+END`); err != nil {
 		t.Fatal(err)
 	}
-	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("second reproduction", "second cause"), f.owner, "failure"); err == nil {
-		t.Fatal("injected receipt failure was accepted")
+	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("second reproduction", "second cause"), f.owner, "failure"); err == nil || !strings.Contains(err.Error(), "injected post-upsert failure") {
+		t.Fatalf("post-upsert failure not reached: %v", err)
 	}
 	if got := readWorkVersion(t, s, work); got != version || currentStep(t, s, work) != "diagnose" {
 		t.Fatalf("failed diagnosis changed version or frontier: %d", got)
+	}
+	assertDocument("first reproduction", "first cause")
+	if after := readRow(); after != before {
+		t.Fatalf("rollback changed diagnosis row: before=%+v after=%+v", before, after)
 	}
 	if _, err := s.db.Exec(`DROP TRIGGER fail_diagnosis_receipt`); err != nil {
 		t.Fatal(err)
@@ -37,6 +78,7 @@ func TestOrdinaryDiagnosisReplacementRollback(t *testing.T) {
 	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("second reproduction", "second cause"), f.owner, "second"); err != nil {
 		t.Fatal(err)
 	}
+	assertDocument("second reproduction", "second cause")
 }
 
 func TestWorkflowRecordActionOwnership(t *testing.T) {

@@ -37,8 +37,8 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upgrade after repair: %v", err)
 	}
-	if len(report.Applied) != 2 || report.Applied[0] != 200 || report.Applied[1] != 201 || report.SchemaVersion != 201 {
-		t.Fatalf("upgrade report = %+v, want 200 and 201", report)
+	if len(report.Applied) != 3 || report.Applied[0] != 200 || report.Applied[1] != 201 || report.Applied[2] != 202 || report.SchemaVersion != 202 {
+		t.Fatalf("upgrade report = %+v, want 200, 201 and 202", report)
 	}
 	plan, err := PlanUpgradeReadiness(ctx, path)
 	if err != nil || plan.ActivationBlocked || len(plan.Pending) != 0 {

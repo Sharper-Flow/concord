@@ -1802,7 +1802,7 @@ if not live_baseline:
 live_failures, live_breaking = check.evaluate(check.migrations(live_source), live_baseline)
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-required_breaking = {199, 200, 201}
+required_breaking = {199, 200, 201, 202}
 if max(live_breaking, default=0) != max(required_breaking):
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")

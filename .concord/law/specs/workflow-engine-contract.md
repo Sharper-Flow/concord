@@ -376,11 +376,14 @@ existing `work_items(id)` key; actor references point to `workflow_actors`.
 
 Every retained workflow record names its reader. The plan and removal-scope
 documents gate their owning step's completion (`requireWorkflowPlanDocumentTx`);
-the clarify document gates the Clarify step through the same gate; the delivery
+the clarify document gates the Clarify step through the same gate;
+`concord_work_trace.resume` with `view=documents` reads the retained plan,
+Clarify and diagnosis documents and their recorded work versions; the delivery
 assertion gates completion and the retained `record_delivery` admission
 (`requireWorkflowCompletionFactsTx`, `workflowPlanTerminalAdmissionTx`); the
-diagnosis gates the diagnose step; the prelude's intake outcome drives opening
-admission and the resume and work-pin derivation; legislative subjects and the
+recorded diagnosis exit, not the diagnosis document, gates the diagnose step;
+the prelude's intake outcome drives opening admission and the resume and
+work-pin derivation; legislative subjects and the
 contract version feed legislated authority resolution (`knowledge_authority`).
 A recorded fact with no gate and no reader is retired, not stored.
 
@@ -392,6 +395,7 @@ Each instance carries its own step plan ([section 2](#2-workflow-type-templates-
 |---|---|---|
 | `workflow_instances` | `work_id TEXT`, `workflow_type TEXT NULL`, `step_plan TEXT NULL`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks type enum or null, plan JSON object or null, state enum |
 | `workflow_clarify_records` | `work_id TEXT`, `work_version INTEGER`, `payload TEXT`, `recorded_at TEXT NULL`, `actor TEXT NULL`, `event_ref TEXT NULL` | PK `work_id`; FK work and nullable actor, both `ON DELETE RESTRICT`; `work_version` is non-null and positive; `payload` is non-null, valid JSON and an object; insert, update and delete require the write guard |
+| `workflow_diagnosis_records` | `work_id TEXT`, `work_version INTEGER`, `payload TEXT`, `recorded_at TEXT NULL`, `actor TEXT NULL`, `event_ref TEXT NULL` | PK `work_id`; FK work and nullable actor, both `ON DELETE RESTRICT`; `work_version` is non-null and positive; `payload` is non-null, valid JSON and an object; insert, update and delete require the write guard |
 | `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `consequence_class TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT`, `law_modifies TEXT`, `law_boundary_version INTEGER`, `self_repair_json TEXT`, `supersession_seq INTEGER`, `last_healthy_seq INTEGER`, `changes_product_truth INTEGER NULL`, `legislative_subjects TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract |
 | `workflow_actors` | `actor_ref TEXT`, `principal_ref TEXT`, `client_ref TEXT`, `agent_ref TEXT`, `session_ref TEXT`, `actor_class TEXT`, `first_seen_at TEXT` | PK `actor_ref`; UNIQUE tuple `(principal_ref,client_ref,agent_ref,session_ref)`; checks nonempty tuple and `actor_class IN ('agent','operator')` |
 | `workflow_checkpoints` | `work_id TEXT`, `checkpoint_id TEXT`, `step_id TEXT`, `step_kind TEXT`, `attempt_epoch INTEGER`, `accepted_inputs_digest TEXT`, `result_evidence_refs TEXT`, `resume_cursor TEXT`, `idempotency_identity TEXT`, `actor_ref TEXT`, `request_id TEXT`, `recorded_at TEXT` | PK `(work_id,checkpoint_id)`; UNIQUE `(work_id,step_id,attempt_epoch)` and `(work_id,idempotency_identity)`; FK work/actor; closed step-kind check |
@@ -438,6 +442,7 @@ Workflow state is current rows written by each mutation in one transaction, and 
 |---|---|
 | intake recorded | insert the intake record row (its outcome) |
 | clarify recorded | insert or replace the `workflow_clarify_records` row with the step document, work version, time, actor and event reference |
+| diagnosis recorded | insert or replace the `workflow_diagnosis_records` row with reproduction and root cause, work version, time, actor and event reference; existing diagnosis exits are not backfilled |
 | type picked | write the item's step plan in one row update through the plan-write check (§2.3); the initial pick copies the type's template; a later pick adds the new type's missing required steps only |
 | step inserted | add the inserted step through the plan-write check; an existing step never changes |
 | step completed | append the step's attempt through the plan-write check; the frontier derives from completions, and no step pointer is stored |
@@ -447,7 +452,7 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | evidence bound | write to the existing evidence authority; it is not copied into a workflow-only authority |
 | premise confirmed | insert operator confirmation |
 | successor linked | write the existing `forward_link` relation; workflow state remains independent |
-| completed | retain terminal current-state identity and reported delivery links and dispose workflow step records atomically after the completion transaction's prior clauses pass; no publication, closure hash or deferred cleanup |
+| completed | retain terminal current-state identity, reported delivery links and the workflow documents (plan, removal-scope, Clarify and diagnosis) and dispose workflow step records atomically after the completion transaction's prior clauses pass; no publication, closure hash or deferred cleanup |
 | work item terminal (`work.transitioned` to `completed` or `cancelled`) | close a live instance in the same transaction: `cancelled` and completed-by-lifecycle both record `cancelled` because the completion gate never ran; an instance already terminal keeps its record |
 
 ## 6. Independent Review

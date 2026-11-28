@@ -15,10 +15,14 @@ Identify the base, the candidate, the assigned step, and the permitted repair
 scope. Include uncommitted changes when they are part of the assigned candidate.
 Establish whether the caller requested an intermediate or final review.
 
-Read the ticket's end state or approved plan and the repository's applicable
-standards, including contribution guidance and local instructions for affected
-files. Follow their references where the change depends on them. Return missing
-inputs to the caller rather than inventing requirements from the diff.
+For managed work, read the recorded plan through the explicit documents view
+in [context continuity](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0016-context-continuity.md).
+The recorded plan is not approval evidence. Reconstruct and verify any fragments before parsing the plan's `document`
+string. Use the ticket for unmanaged work or when the complete result has no
+plan. Read the repository's applicable standards, including contribution
+guidance and local instructions for affected files. Follow their references
+where the change depends on them. Return missing inputs to the caller rather
+than inventing requirements from the diff.
 
 For the final review of an architectural change, or of a change that altered
 a documented boundary, flow, or state authority, load the shipped

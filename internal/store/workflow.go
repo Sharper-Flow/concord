@@ -569,7 +569,18 @@ func foldWorkflowDiagnosisRecorded(ctx context.Context, tx *sql.Tx, event Event)
 	if !workflowString(p.Reproduction, 4096) || !workflowString(p.RootCause, 4096) {
 		return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded has invalid reproduction or root-cause sections", false, "record every required diagnosis section")
 	}
-	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
+	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	document, err := json.Marshal(struct {
+		Reproduction string `json:"reproduction"`
+		RootCause    string `json:"root_cause"`
+	}{p.Reproduction, p.RootCause})
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_diagnosis_records(work_id,work_version,payload,recorded_at,actor,event_ref) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET work_version=excluded.work_version,payload=excluded.payload,recorded_at=excluded.recorded_at,actor=excluded.actor,event_ref=excluded.event_ref`, event.SubjectID, *p.ResultingVersion, string(document), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.EventID)
+	return workflowProjectionError(err, "cannot record workflow diagnosis")
 }
 
 func foldWorkflowActorRecorded(ctx context.Context, tx *sql.Tx, event Event) error {

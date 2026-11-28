@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,8 +14,247 @@ import (
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
+	"github.com/sharper-flow/concord/internal/sessionboot"
 	"github.com/sharper-flow/concord/internal/store"
 )
+
+func TestResumeRetainedDocumentsDispatch(t *testing.T) {
+	fx := seedReadPopulationFixture(t)
+	request := func(view string) agentcontract.Envelope {
+		input := map[string]any{"work_id": fx.workID}
+		if view != "" {
+			input["view"] = view
+		}
+		return dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(input)}, fx.envelope(t))
+	}
+	defaultBefore := request("")
+	browse := func() []byte {
+		response := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_browse", Operation: "list", Input: retryJSON(map[string]any{"work_ids": []string{fx.workID}, "detail": "full"})}, fx.envelope(t))
+		if response.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("full browse refused: %+v", response.Error)
+		}
+		return response.Result
+	}
+	browseBefore := browse()
+	boot := func() []byte {
+		snapshot, err := store.ReadSessionResume(context.Background(), fx.store, fx.workID, readPopulationProject)
+		if err != nil {
+			t.Fatal(err)
+		}
+		packet, err := sessionboot.Build(readPopulationProduct, readPopulationProject, snapshot, func([]byte) (bool, error) { return true, nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return packet
+	}
+	bootBefore := boot()
+	empty := request("documents")
+	if empty.Outcome != agentcontract.OutcomeOK || !bytes.Contains(empty.Result, []byte(`"documents":{}`)) {
+		t.Fatalf("empty documents: %s %+v", empty.Result, empty.Error)
+	}
+	documents := map[string]string{
+		"plan":      `{ "legacy_field": "<plan>&\u2028" }`,
+		"clarify":   `{"note":"clarified","resolved_questions":["why"]}`,
+		"diagnosis": `{"reproduction":"first","root_cause":"cause"}`,
+	}
+	db := fx.store.DatabaseForTesting()
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct{ query, document string }{
+		{`INSERT INTO workflow_plan_records(work_id,work_version,payload,recorded_at,actor,event_ref) SELECT ?,2,?,'now',actor_ref,'event:plan' FROM workflow_actors LIMIT 1`, documents["plan"]},
+		{`INSERT INTO workflow_clarify_records(work_id,work_version,payload) VALUES(?,3,?)`, documents["clarify"]},
+		{`INSERT INTO workflow_diagnosis_records(work_id,work_version,payload) VALUES(?,4,?)`, documents["diagnosis"]},
+	} {
+		if _, err := db.Exec(row.query, fx.workID, row.document); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	response := request("documents")
+	if response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("documents read refused: %+v", response.Error)
+	}
+	var got struct {
+		WorkID    string `json:"work_id"`
+		Version   int64  `json:"version"`
+		Documents map[string]struct {
+			RecordedVersion int64  `json:"recorded_work_version"`
+			Document        string `json:"document"`
+		} `json:"documents"`
+	}
+	if err := json.Unmarshal(response.Result, &got); err != nil || got.WorkID != fx.workID || len(got.Documents) != 3 {
+		t.Fatalf("documents result=%s err=%v", response.Result, err)
+	}
+	var currentVersion int64
+	if err := db.QueryRow(`SELECT version FROM work_items WHERE id=?`, fx.workID).Scan(&currentVersion); err != nil || got.Version != currentVersion {
+		t.Fatalf("current version=%d result version=%d err=%v", currentVersion, got.Version, err)
+	}
+	for i, name := range []string{"plan", "clarify", "diagnosis"} {
+		record := got.Documents[name]
+		var parsed map[string]any
+		if record.Document != documents[name] || record.RecordedVersion != int64(i+2) || json.Unmarshal([]byte(record.Document), &parsed) != nil || len(parsed) == 0 {
+			t.Fatalf("%s record=%+v", name, record)
+		}
+	}
+	defaultAfter := request("")
+	if !bytes.Equal(defaultBefore.Result, defaultAfter.Result) {
+		t.Fatalf("default resume changed: %s != %s", defaultBefore.Result, defaultAfter.Result)
+	}
+	if !bytes.Equal(bootBefore, boot()) {
+		t.Fatal("session boot bytes changed after documents were recorded")
+	}
+	if !bytes.Equal(browseBefore, browse()) {
+		t.Fatal("full work browse changed after documents were recorded")
+	}
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"workflow_plan_records", "workflow_clarify_records", "workflow_diagnosis_records"} {
+		if _, err := db.Exec(`UPDATE `+table+` SET work_version=5,payload='{"replacement":"latest"}' WHERE work_id=?`, fx.workID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`DELETE FROM workflow_diagnosis_records WHERE work_id=?`, fx.workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO workflow_completed_exits(work_id,definition_ref,step_id,action_id,exit_seq) VALUES(?,'fix','diagnose','record_diagnosis',999)`, fx.workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	response = request("documents")
+	got.Documents = nil
+	if err := json.Unmarshal(response.Result, &got); err != nil || len(got.Documents) != 2 {
+		t.Fatalf("legacy diagnosis absence: %s err=%v", response.Result, err)
+	}
+	for _, name := range []string{"plan", "clarify"} {
+		if got.Documents[name].Document != `{"replacement":"latest"}` || got.Documents[name].RecordedVersion != 5 {
+			t.Fatalf("%s replacement: %+v", name, got.Documents[name])
+		}
+	}
+	assertUnreadable := func(service *Service, env CallEnvelope, work, message string) {
+		t.Helper()
+		response := dispatchRead(t, fx.store, service, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(map[string]any{"work_id": work, "view": "documents"})}, env)
+		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unauthorized" || response.Error.Message != message || len(response.Result) != 0 {
+			t.Fatalf("expected %q, got %+v", message, response)
+		}
+	}
+	assertUnreadable(fx.service, fx.envelope(t), "perf-work-000-00", "work reference is outside authorized Product scope")
+	withoutRead, _, grant := newAuthorizedService(t, fx.store, "client-no-read", "human-no-read", []agentcontract.Capability{"work_define"}, []string{readPopulationProduct}, []string{readPopulationProject}, store.ProjectResolution{ProjectID: readPopulationProject})
+	assertUnreadable(withoutRead, agentJobsEnvelope(grant, readPopulationProject, readPopulationProduct), fx.workID, "capability outside trusted client policy")
+	resolveProjectAuthority(fx.service, store.ProjectResolution{ProjectID: readPopulationKnowledgeHome})
+	assertUnreadable(fx.service, fx.envelope(t), fx.workID, "resolved Project is outside trusted client policy")
+}
+
+func TestResumeDocumentsEscapingFragments(t *testing.T) {
+	fx := seedReadPopulationFixture(t)
+	// Seed escaped JSON directly to exercise large readback, not action admission.
+	escaped := func(n int) string {
+		return strings.Repeat("<>&\u2028\u2029", n/9) + strings.Repeat("<", n%9)
+	}
+	decisions := make([]map[string]any, 16)
+	for i := range decisions {
+		rejected := make([]string, 8)
+		for j := range rejected {
+			rejected[j] = escaped(1024)
+		}
+		decisions[i] = map[string]any{"id": "decision:" + strconv.Itoa(i), "question": escaped(512), "choice": escaped(1024), "rationale": escaped(1024), "rejected": rejected}
+	}
+	touches := make([]string, 64)
+	for i := range touches {
+		touches[i] = "file:" + strconv.Itoa(i)
+	}
+	payload := map[string]any{"outcomes": escaped(4096), "approach": escaped(4096), "decisions": decisions, "touches": touches, "merge_split": escaped(4096), "risks": escaped(4096)}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := payloadschema.Validate("work_transition_action_variant_record_plan", retryJSON(map[string]any{"work_id": fx.workID, "expected_version": 1, "idempotency_key": "plan-key", "action_id": "record_plan", "fields": payload})); err != nil {
+		t.Fatalf("plan is not accepted by writer schema: %v", err)
+	}
+	db := fx.store.DatabaseForTesting()
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO workflow_plan_records(work_id,work_version,payload,recorded_at,actor,event_ref) SELECT ?,1,?,'now',actor_ref,'event:plan' FROM workflow_actors LIMIT 1`, fx.workID, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	read := func(view string, cursor *string) agentcontract.Envelope {
+		input := map[string]any{"work_id": fx.workID, "view": view}
+		if cursor != nil {
+			input["page"] = map[string]any{"cursor": *cursor}
+		}
+		return dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(input)}, fx.envelope(t))
+	}
+	response := read("documents", nil)
+	var content strings.Builder
+	var digest, firstCursor string
+	var total int
+	for {
+		if response.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("fragment refused: %+v", response.Error)
+		}
+		assertBoundedRead(t, response)
+		var page mutationFragmentPage
+		if err := json.Unmarshal(response.Result, &page); err != nil || page.Encoding != "json-fragment" {
+			t.Fatalf("invalid fragment: %s %v", response.Result, err)
+		}
+		if content.Len() == 0 {
+			digest, total = page.Digest, page.TotalBytes
+			if response.NextCursor == nil {
+				t.Fatal("missing first continuation")
+			}
+			firstCursor = *response.NextCursor
+			changed := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(map[string]any{"work_id": fx.workID, "page": map[string]any{"cursor": firstCursor}})}, fx.envelope(t))
+			if changed.Error == nil || changed.Error.Kind != "invalid_cursor" || changed.Error.Message != "cursor is bound to a different query" {
+				t.Fatalf("view change did not refuse at cursor binding: %+v", changed.Error)
+			}
+		}
+		if page.Offset != content.Len() || page.Digest != digest || page.TotalBytes != total || page.FragmentBytes != len(page.Data) {
+			t.Fatalf("inconsistent fragment: %+v", page)
+		}
+		content.WriteString(page.Data)
+		if page.DocumentComplete {
+			if response.NextCursor != nil {
+				t.Fatal("complete page has a continuation")
+			}
+			break
+		}
+		if response.NextCursor == nil {
+			t.Fatal("missing continuation")
+		}
+		response = read("documents", response.NextCursor)
+	}
+	doc := []byte(content.String())
+	if len(doc) != total || fmt.Sprintf("sha256:%x", sha256.Sum256(doc)) != digest {
+		t.Fatal("document digest or length differs")
+	}
+	if err := payloadschema.Validate("resume_documents_document", doc); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Documents struct {
+			Plan struct {
+				Document string `json:"document"`
+			} `json:"plan"`
+		} `json:"documents"`
+	}
+	if err := json.Unmarshal(doc, &got); err != nil || got.Documents.Plan.Document != string(raw) {
+		t.Fatalf("plan bytes differ after reconstruction: %v", err)
+	}
+	execPopulationStatement(t, fx.store, `UPDATE workflow_plan_records SET payload=payload||' ' WHERE work_id=?`, fx.workID)
+	changed := read("documents", &firstCursor)
+	if changed.Error == nil || changed.Error.Kind != "invalid_cursor" || changed.Error.Message != "resume document changed or cursor offset is invalid; restart the read" {
+		t.Fatalf("cursor survived a stored document byte change: %+v", changed.Error)
+	}
+}
 
 func TestResumeOversizedDocumentDispatch(t *testing.T) {
 	fx := seedReadPopulationFixture(t)
@@ -209,6 +451,9 @@ func TestResumeResultSchemaClosedUnion(t *testing.T) {
 		valid         bool
 	}{
 		{"inline", `{"work_id":"work-1","version":1,"state":"running"}`, true},
+		{"documents", `{"work_id":"work-1","version":2,"documents":{"plan":{"recorded_work_version":1,"document":"{\"legacy\":true}"}}}`, true},
+		{"documents extra", `{"work_id":"work-1","version":2,"documents":{"plan":{"recorded_work_version":1,"document":"{}","unexpected":true}}}`, false},
+		{"documents object", `{"work_id":"work-1","version":2,"documents":{"plan":{"recorded_work_version":1,"document":{}}}}`, false},
 		{"fragment", `{"encoding":"json-fragment","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","total_bytes":2,"offset":0,"data":"{}","fragment_bytes":2,"document_complete":true}`, true},
 		{"mixed", `{"work_id":"work-1","version":1,"state":"running","encoding":"json-fragment"}`, false},
 		{"extra", `{"work_id":"work-1","version":1,"state":"running","unexpected":true}`, false},

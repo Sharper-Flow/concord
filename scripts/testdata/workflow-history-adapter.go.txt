@@ -19,7 +19,25 @@ func historicalWorkflowPayload(action string, raw json.RawMessage) error {
 		if err != nil {
 			return err
 		}
-		legacy, err := json.Marshal(map[string]json.RawMessage{"approach": fields["approach"], "decisions": fields["decisions"], "touched_refs": fields["touches"]})
+		var touches []struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(fields["touches"], &touches); err != nil {
+			return err
+		}
+		paths := make([]string, len(touches))
+		for i, touch := range touches {
+			paths[i] = touch.Path
+		}
+		var decisions []map[string]json.RawMessage
+		if err := json.Unmarshal(fields["decisions"], &decisions); err != nil {
+			return err
+		}
+		for _, decision := range decisions {
+			delete(decision, "status")
+			delete(decision, "approval")
+		}
+		legacy, err := json.Marshal(map[string]any{"approach": fields["approach"], "decisions": decisions, "touched_refs": paths})
 		if err != nil {
 			return err
 		}

@@ -129,7 +129,16 @@ definition digest: a copied plan never changes when a template changes.
 The closed type set is `change`, `fix`, `research`, and `removal`. Only Change
 and Fix carry the six-part architectural plan at their plan step.
 
-The plan record carries the six parts as typed members: each outcome with its statement, done condition, evidence and the other outcomes it depends on; each touched path with its role as a change, a caller, a reader, a triggered check or law; each decision with its status and, for an operator-reserved choice, the approval class or reservation and its consequence, citing the record that holds the operator's answer once given; and the approach, merge split and risks as prose.
+When an agent records the six-part architectural plan, each outcome has a
+statement, done condition, evidence and dependencies. Outcome IDs and touched
+paths are unique within the record. Each dependency names another outcome in
+the same record. Each touched path names its role: change, caller, reader,
+triggered check or law. The approach, merge split and risks are prose.
+
+Each decision records its status. A decision awaiting the operator records the
+approval class or reservation and its consequence, without citing an answer.
+A settled decision that carries those approval details cites the record that
+holds the operator's answer.
 
 ### 2.2 Per-item plan
 

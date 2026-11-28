@@ -92,11 +92,20 @@ func TestRecordPlanClosure(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			raw := json.RawMessage(strings.Replace(valid, tc.old, tc.replacement, 1))
 			_, err := validateWorkflowPlanActionPayload("record_plan", raw)
-			requirePayloadFailure(t, err, tc.field, "")
+			_ = requirePayloadFailure(t, err, tc.field, "")
 		})
 	}
-	if _, err := validateWorkflowPlanActionPayload("record_plan", json.RawMessage(valid)); err != nil {
-		t.Fatalf("valid plan refused: %v", err)
+	for _, decision := range []struct{ name, statusAndApproval string }{
+		{"no approval needed", `"status":"settled"`},
+		{"operator question", `"status":"operator_question","approval":{"class":"security","consequence":"risk"}`},
+		{"settled approval", `"status":"settled","approval":{"class":"security","consequence":"risk","evidence_ref":"evidence:one"}`},
+	} {
+		t.Run(decision.name, func(t *testing.T) {
+			raw := json.RawMessage(strings.Replace(valid, `"status":"settled"`, decision.statusAndApproval, 1))
+			if _, err := validateWorkflowPlanActionPayload("record_plan", raw); err != nil {
+				t.Fatalf("valid plan refused: %v", err)
+			}
+		})
 	}
 }
 

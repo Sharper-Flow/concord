@@ -15,6 +15,19 @@ func TestOrdinaryDiagnosisReplacementRollback(t *testing.T) {
 	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("first reproduction", "first cause"), f.owner, "first"); err != nil {
 		t.Fatal(err)
 	}
+	assertDocument := func(reproduction, cause string) {
+		t.Helper()
+		var raw string
+		var count int
+		if err := s.db.QueryRow(`SELECT count(*), COALESCE(max(payload),'') FROM workflow_diagnosis_records WHERE work_id=?`, work).Scan(&count, &raw); err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]string
+		if err := json.Unmarshal([]byte(raw), &got); err != nil || count != 1 || len(got) != 2 || got["reproduction"] != reproduction || got["root_cause"] != cause {
+			t.Fatalf("diagnosis count=%d payload=%s err=%v", count, raw, err)
+		}
+	}
+	assertDocument("first reproduction", "first cause")
 	version := readWorkVersion(t, s, work)
 	if err := runVerdictActionAtVersion(t, s, work, "record_diagnosis", diagnosisPayload("stale reproduction", "stale cause"), version-1, f.owner); err == nil {
 		t.Fatal("stale diagnosis was accepted")
@@ -22,6 +35,7 @@ func TestOrdinaryDiagnosisReplacementRollback(t *testing.T) {
 	if got := readWorkVersion(t, s, work); got != version {
 		t.Fatalf("stale diagnosis changed version: %d -> %d", version, got)
 	}
+	assertDocument("first reproduction", "first cause")
 	if _, err := s.db.Exec(`CREATE TRIGGER fail_diagnosis_receipt BEFORE INSERT ON effect_receipts WHEN NEW.kind='workflow.diagnosis_recorded' BEGIN SELECT RAISE(ABORT, 'injected diagnosis failure'); END`); err != nil {
 		t.Fatal(err)
 	}
@@ -31,12 +45,14 @@ func TestOrdinaryDiagnosisReplacementRollback(t *testing.T) {
 	if got := readWorkVersion(t, s, work); got != version || currentStep(t, s, work) != "diagnose" {
 		t.Fatalf("failed diagnosis changed version or frontier: %d", got)
 	}
+	assertDocument("first reproduction", "first cause")
 	if _, err := s.db.Exec(`DROP TRIGGER fail_diagnosis_receipt`); err != nil {
 		t.Fatal(err)
 	}
 	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("second reproduction", "second cause"), f.owner, "second"); err != nil {
 		t.Fatal(err)
 	}
+	assertDocument("second reproduction", "second cause")
 }
 
 func TestWorkflowRecordActionOwnership(t *testing.T) {

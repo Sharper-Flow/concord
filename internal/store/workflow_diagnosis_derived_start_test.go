@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +17,44 @@ func diagnosisS1Actor(workID, name string) WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/" + name, SessionRef: "session/" + workID + "-" + name, ActorClass: ActorAgent}
 }
 
+func TestDiagnosisUpgradeLeavesLegacyExitWithoutDocument(t *testing.T) {
+	useStampedBuild(t)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "upgrade.db"), 201)
+	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
+	retirementUpgradeExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES('legacy','bug','Legacy','needed',1,'now','now')`)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_completed_exits(work_id,definition_ref,step_id,action_id,exit_seq) VALUES('legacy','fix','diagnose','record_diagnosis',1)`)
+	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+	if err := migrateAtOpen(t.Context(), db); !hasFailureKind(err, KindUpgradeRequired) {
+		t.Fatalf("open before upgrade: %v", err)
+	}
+	if err := Migrate(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	var exits, documents int
+	if err := db.QueryRow(`SELECT (SELECT count(*) FROM workflow_completed_exits WHERE work_id='legacy' AND action_id='record_diagnosis'), (SELECT count(*) FROM workflow_diagnosis_records WHERE work_id='legacy')`).Scan(&exits, &documents); err != nil || exits != 1 || documents != 0 {
+		t.Fatalf("legacy exits=%d documents=%d err=%v", exits, documents, err)
+	}
+}
+
+func TestDiagnosisRemovalPurgesDocument(t *testing.T) {
+	const work = "diagnosis-removal"
+	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanFix, "diagnose")
+	if err := runVerdictActionAs(t, f.store, work, "record_diagnosis", diagnosisPayload("the reproduction", "the cause"), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	req := removalTestRequest()
+	req.WorkID, req.OperationID, req.IdempotencyKey = work, "remove-diagnosis", "key-diagnosis"
+	req.ExpectedVersion = readWorkVersion(t, f.store, work)
+	confirmRemovalHandoff(t, f.store, &req)
+	if err := removeWorkForTest(t.Context(), f.store, req); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM workflow_diagnosis_records WHERE work_id=?`, work).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("remaining diagnosis rows=%d err=%v", count, err)
+	}
+}
+
 func diagnosisPayload(reproduction, rootCause string) json.RawMessage {
 	payload := map[string]any{"reproduction": reproduction, "root_cause": rootCause}
 	encoded, err := json.Marshal(payload)
@@ -23,6 +62,44 @@ func diagnosisPayload(reproduction, rootCause string) json.RawMessage {
 		panic(err)
 	}
 	return encoded
+}
+
+func TestDiagnosisDocumentReadThrough(t *testing.T) {
+	const work = "diagnosis-document-read"
+	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanFix, "diagnose")
+	reproduction, cause := "Reproduce:\n  café \"quoted\"", "Cause:\n  one → two"
+	if err := runVerdictActionAs(t, f.store, work, "record_diagnosis", diagnosisPayload(reproduction, cause), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	var raw string
+	if err := f.store.db.QueryRow(`SELECT payload FROM workflow_diagnosis_records WHERE work_id=?`, work).Scan(&raw); err != nil {
+		t.Fatalf("read diagnosis document: %v", err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["reproduction"] != reproduction || got["root_cause"] != cause {
+		t.Fatalf("diagnosis document = %#v", got)
+	}
+	var version int64
+	var actor, eventRef, recordedAt string
+	if err := f.store.db.QueryRow(`SELECT work_version,actor,event_ref,recorded_at FROM workflow_diagnosis_records WHERE work_id=?`, work).Scan(&version, &actor, &eventRef, &recordedAt); err != nil {
+		t.Fatal(err)
+	}
+	var receiptActor string
+	if err := f.store.db.QueryRow(`SELECT actor FROM effect_receipts WHERE event_id=? AND subject_id=? AND kind=?`, eventRef, work, WorkflowDiagnosisRecorded).Scan(&receiptActor); err != nil || actor != receiptActor || version <= 0 || recordedAt == "" {
+		t.Fatalf("diagnosis attribution version=%d actor=%q receipt actor=%q time=%q err=%v", version, actor, receiptActor, recordedAt, err)
+	}
+	for _, query := range []string{
+		`INSERT INTO workflow_diagnosis_records(work_id,work_version,payload) VALUES('other',1,'{}')`,
+		`UPDATE workflow_diagnosis_records SET payload='{}' WHERE work_id='diagnosis-document-read'`,
+		`DELETE FROM workflow_diagnosis_records WHERE work_id='diagnosis-document-read'`,
+	} {
+		if _, err := f.store.db.Exec(query); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
+			t.Fatalf("unguarded write %q: %v", query, err)
+		}
+	}
 }
 
 type workflowStartObservation struct {

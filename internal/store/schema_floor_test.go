@@ -73,8 +73,8 @@ func TestSchemaFloorFreshManifest(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*),min(version),max(version) FROM schema_migrations`).Scan(&count, &minimum, &maximum); err != nil {
 		t.Fatal(err)
 	}
-	if count != 3 || minimum != 199 || maximum != 201 {
-		t.Fatalf("fresh manifest = (%d,%d,%d), want (3,199,201)", count, minimum, maximum)
+	if count != 4 || minimum != 199 || maximum != 202 {
+		t.Fatalf("fresh manifest = (%d,%d,%d), want (4,199,202)", count, minimum, maximum)
 	}
 }
 
@@ -89,7 +89,7 @@ func TestSchemaFloorBaselineForward(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, m := range migrations {
-		if m.Version >= 199 && m.Version <= 201 {
+		if m.Version >= 199 && m.Version <= 202 {
 			if err := applyMigration(ctx, db, m); err != nil {
 				t.Fatalf("migration %d: %v", m.Version, err)
 			}
@@ -141,8 +141,8 @@ func TestSchemaFloorUpgradeFrom199(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Applied) != 2 || report.Applied[0] != 200 || report.Applied[1] != 201 || report.SchemaVersion != 201 {
-		t.Fatalf("upgrade report = %+v, want migrations 200 and 201", report)
+	if len(report.Applied) != 3 || report.Applied[0] != 200 || report.Applied[1] != 201 || report.Applied[2] != 202 || report.SchemaVersion != 202 {
+		t.Fatalf("upgrade report = %+v, want migrations 200, 201 and 202", report)
 	}
 }
 
@@ -239,13 +239,13 @@ func TestSchemaFloorRetainedChecksumsAndAdmission(t *testing.T) {
 	if err := checkManifest(applied); err != nil {
 		t.Fatalf("retired manifest entry refused: %v", err)
 	}
-	applied[202] = appliedMigration{Checksum: "future", Breaking: false}
+	applied[203] = appliedMigration{Checksum: "future", Breaking: false}
 	if err := checkManifest(applied); err != nil {
 		t.Fatalf("additive future entry refused: %v", err)
 	}
-	applied[202] = appliedMigration{Checksum: "future", Breaking: true}
+	applied[203] = appliedMigration{Checksum: "future", Breaking: true}
 	assertFailureKind(t, checkManifest(applied), KindSchemaUnsupported)
-	delete(applied, 202)
+	delete(applied, 203)
 	applied[200] = appliedMigration{Checksum: "forged", Breaking: true}
 	assertFailureKind(t, checkManifest(applied), KindSchemaDrift)
 	delete(applied, 200)

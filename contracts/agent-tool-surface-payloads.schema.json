@@ -1906,7 +1906,8 @@
         },
         "view": {
           "type": "string",
-          "enum": ["documents"]
+          "enum": ["documents"],
+          "description": "The documents view returns the item's retained plan, Clarify and diagnosis documents as stored, each with its recorded work version, instead of the step plan. Omit view to read the step plan."
         },
         "page": {
           "$ref": "#/$defs/page"

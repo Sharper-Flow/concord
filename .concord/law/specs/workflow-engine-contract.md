@@ -129,6 +129,8 @@ definition digest: a copied plan never changes when a template changes.
 The closed type set is `change`, `fix`, `research`, and `removal`. Only Change
 and Fix carry the six-part architectural plan at their plan step.
 
+The plan record carries the six parts as typed members: each outcome with its statement, done condition, evidence and the other outcomes it depends on; each touched path with its role as a change, a caller, a reader, a triggered check or law; each decision with its status and, for an operator-reserved choice, the approval class or reservation and its consequence, citing the record that holds the operator's answer once given; and the approach, merge split and risks as prose.
+
 ### 2.2 Per-item plan
 
 When the driving agent picks the type, Concord copies that type's required
@@ -376,7 +378,7 @@ existing `work_items(id)` key; actor references point to `workflow_actors`.
 
 Every retained workflow record names its reader. The plan and removal-scope
 documents gate their owning step's completion (`requireWorkflowPlanDocumentTx`);
-the clarify document gates the Clarify step through the same gate;
+the clarify document gates the Clarify step through the same gate; the gate requires the current document and that it is a JSON object, and validation at recording owns its shape;
 `concord_work_trace.resume` with `view=documents` reads the retained plan,
 Clarify and diagnosis documents and their recorded work versions; the delivery
 assertion gates completion and the retained `record_delivery` admission

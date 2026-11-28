@@ -649,6 +649,9 @@ edges. It may also name one to sixteen distinct existing steps that have no
 recorded execution start, checkpoint or completion attempt. Each named step
 then gains the inserted step as its last prerequisite in the same plan write.
 Nothing else about existing steps changes.
+Eligibility follows the records the item retains: cancellation removes execution
+starts and checkpoints, so after a reopen an incomplete step is eligible again,
+while a retained completion attempt keeps a step ineligible.
 A send-back inserts a new step after the current one instead of changing
 completed steps.
 

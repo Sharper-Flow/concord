@@ -190,6 +190,74 @@ func TestWorkflowInsertBeforeStartedOrCheckpointed(t *testing.T) {
 	}
 }
 
+func TestWorkflowInsertBeforeAfterReopen(t *testing.T) {
+	for _, action := range []string{"start_execution", "checkpoint_execution"} {
+		t.Run(action, func(t *testing.T) {
+			const workID = "work-insert-reopen"
+			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", nil)
+			defer f.store.Close()
+			if err := runVerdictAction(t, f.store, workID, action, json.RawMessage(`{}`)); err != nil {
+				t.Fatalf("record %s: %v", action, err)
+			}
+			payload := json.RawMessage(`{"id":"extra","after":["clarify"],"before":["implement"],"reason":"review"}`)
+			err := runVerdictAction(t, f.store, workID, "insert_step", payload)
+			detail := `before step "implement" has an execution start`
+			if action == "checkpoint_execution" {
+				detail = `before step "implement" has a checkpoint`
+			}
+			if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), detail) {
+				t.Fatalf("before cancellation insertion = %v; want %s", err, detail)
+			}
+			cancelAndReopenInsertFixture(t, f.store, workID)
+			if err := runVerdictAction(t, f.store, workID, "insert_step", payload); err != nil {
+				t.Fatalf("insertion after reopen: %v", err)
+			}
+			plan, err := readWorkflowPlanTx(t.Context(), f.store.db, workID)
+			if err != nil || plan == nil {
+				t.Fatalf("read plan: %v", err)
+			}
+			step, found := stepByID(plan.Steps, "implement")
+			if !found || len(step.After) != 2 || step.After[0] != "plan" || step.After[1] != "extra" {
+				t.Fatalf("implement prerequisites = %v", step.After)
+			}
+		})
+	}
+}
+
+func TestWorkflowInsertBeforeCompletedAfterReopen(t *testing.T) {
+	const workID = "work-insert-completed-reopen"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", nil)
+	defer f.store.Close()
+	cancelAndReopenInsertFixture(t, f.store, workID)
+	err := runVerdictAction(t, f.store, workID, "insert_step", json.RawMessage(`{"id":"extra","after":["clarify"],"before":["plan"],"reason":"review"}`))
+	if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(errDetail(err), `before step "plan" has a completion attempt`) {
+		t.Fatalf("completed target after reopen = %v", err)
+	}
+}
+
+func cancelAndReopenInsertFixture(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	var lifecycle string
+	if err := s.db.QueryRowContext(t.Context(), `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, s, workID)
+	if err := applyWorkEvent(t, s, workTransitionEvent("cancel-"+workID, workID, lifecycle, "cancelled", version, version+1), workVersion(workID, version)); err != nil {
+		t.Fatalf("cancel work: %v", err)
+	}
+	var starts, checkpoints int
+	if err := s.db.QueryRowContext(t.Context(), `SELECT (SELECT count(*) FROM workflow_step_epochs WHERE work_id=?),(SELECT count(*) FROM workflow_checkpoints WHERE work_id=?)`, workID, workID).Scan(&starts, &checkpoints); err != nil {
+		t.Fatal(err)
+	}
+	if starts != 0 || checkpoints != 0 {
+		t.Fatalf("cancellation retained %d starts and %d checkpoints", starts, checkpoints)
+	}
+	version = readWorkVersion(t, s, workID)
+	if err := applyWorkEvent(t, s, workReopenedEvent("reopen-"+workID, workID, "cancelled", version, version+1), workVersion(workID, version)); err != nil {
+		t.Fatalf("reopen work: %v", err)
+	}
+}
+
 func TestWorkflowInsertUnreviewedHelperAfterReviewedStep(t *testing.T) {
 	const workID = "work-insert-unreviewed-helper"
 	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", nil)

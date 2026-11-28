@@ -46,7 +46,7 @@ func TestWorkflowStepPlanInsertionAfterNil(t *testing.T) {
 	old := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
 	old.Steps[0].After = nil
 	next := stepPlanCopy(old)
-	next.Steps[0].After = append(old.Steps[0].After, "extra")
+	next.Steps[0].After = append(next.Steps[0].After, "extra")
 	next.Steps = append(next.Steps, WorkflowPlanStep{ID: "extra", After: []string{}})
 	if err := ValidateStepPlanWrite(&old, next); err != nil {
 		t.Fatalf("insertion after nil refused: %v", err)

@@ -750,12 +750,13 @@ The contract does not invent audience storage or a new workflow type.
 
 - Given an insertion that names steps to run after it
   When the engine applies the insertion
-  Then, if every named step exists and has no recorded execution start,
-  checkpoint or completion attempt and the write passes §2.3, each named step
-  gains the inserted step as its last prerequisite. If a named step does not
-  exist or has a recorded execution start, checkpoint or completion attempt,
-  the engine names the step and cause in an invalid_input refusal. The work
-  version and stored plan remain unchanged on refusal.
+  Then, if the insertion id is new, every named step exists and has no recorded
+  execution start, checkpoint or completion attempt, each named step gains the
+  inserted step as its last prerequisite when the write passes §2.3. If the
+  insertion id already exists, or a named step does not exist or has a recorded
+  execution start, checkpoint or completion attempt, the engine names the reused
+  id, or the step and cause, in an invalid_input refusal. The work version and
+  stored plan remain unchanged on refusal.
 
 ## Verification
 

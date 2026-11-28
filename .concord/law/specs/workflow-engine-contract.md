@@ -381,8 +381,9 @@ the clarify document gates the Clarify step through the same gate;
 Clarify and diagnosis documents and their recorded work versions; the delivery
 assertion gates completion and the retained `record_delivery` admission
 (`requireWorkflowCompletionFactsTx`, `workflowPlanTerminalAdmissionTx`); the
-diagnosis gates the diagnose step; the prelude's intake outcome drives opening
-admission and the resume and work-pin derivation; legislative subjects and the
+recorded diagnosis exit, not the diagnosis document, gates the diagnose step;
+the prelude's intake outcome drives opening admission and the resume and
+work-pin derivation; legislative subjects and the
 contract version feed legislated authority resolution (`knowledge_authority`).
 A recorded fact with no gate and no reader is retired, not stored.
 

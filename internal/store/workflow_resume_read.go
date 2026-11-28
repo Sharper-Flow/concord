@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"unicode/utf8"
 )
 
 type WorkflowRetainedDocument struct {
@@ -68,7 +68,7 @@ func ReadWorkflowDocuments(ctx context.Context, s *Store, workID string) (Workfl
 		if err != nil {
 			return out, wrapFailure(KindUnavailable, "C19.Resume", "cannot read a retained workflow document", true, "retry once the database is readable", err)
 		}
-		if record.RecordedWorkVersion < 1 || !json.Valid([]byte(record.Document)) || !isJSONObject([]byte(record.Document)) {
+		if record.RecordedWorkVersion < 1 || !utf8.ValidString(record.Document) || !isJSONObject([]byte(record.Document)) {
 			return out, newFailure(KindInvariantViolation, "C19.Resume", "retained workflow document is invalid", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		*item.target = &record

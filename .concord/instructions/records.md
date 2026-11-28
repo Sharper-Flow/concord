@@ -73,8 +73,8 @@ error or small reproduction when useful and link full diagnostics.
 - At launch, retrigger, restart, context reset or RTE succession, before acting,
   read the work's durable records and relevant ticket events. For captured work,
   read the captured task with item-scoped `concord_work_browse.list` using
-  `detail=full`, and `concord_work_trace.resume`. When resuming or reviewing past
-  the type pick, also read `concord_work_trace.resume` with `view=documents`.
+  `detail=full`, and `concord_work_trace.resume`. For captured work past type
+  pick, also read `concord_work_trace.resume` with `view=documents`.
 - Before capture, the Herdr tab title names the ticket; after capture, the Concord
   work record for the ticket and the Herdr tab title identify the owner. Do not post
   owner or assignment comments; use Linear status for planning state.

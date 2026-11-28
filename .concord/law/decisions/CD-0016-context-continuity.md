@@ -39,9 +39,10 @@ snapshot and authenticated projection-page transport, `checkpoint_context`,
 `cross_context_boundary`, their `workflow_context_checkpoints` and
 `workflow_context_boundaries` tables, and typed restart availability. No
 replacement or compatibility path remains for these retired surfaces.
-`concord_work_trace.resume` supplies the step plan and resume fragments; its
-explicit documents view supplies retained plan, Clarify and diagnosis documents;
-item-scoped `concord_work_browse.list` with `detail=full` supplies law context,
+`concord_work_trace.resume` supplies the step plan by default and retained plan,
+Clarify and diagnosis documents with `view=documents`. Both views support
+resume fragments.
+Item-scoped `concord_work_browse.list` with `detail=full` supplies law context,
 pending handoff and native runs. Mutation results retain the WorkPin and
 derived `next_valid_intents` under CD-0113 D1–D3; refresh intents that require
 current work facts use item-scoped list.

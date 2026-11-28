@@ -42,6 +42,11 @@ func TestDiagnosisRemovalPurgesDocument(t *testing.T) {
 	if err := runVerdictActionAs(t, f.store, work, "record_diagnosis", diagnosisPayload("the reproduction", "the cause"), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
+	const documentCount = `SELECT count(*) FROM workflow_diagnosis_records WHERE work_id=?`
+	var count int
+	if err := f.store.db.QueryRow(documentCount, work).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("diagnosis rows before removal=%d err=%v", count, err)
+	}
 	req := removalTestRequest()
 	req.WorkID, req.OperationID, req.IdempotencyKey = work, "remove-diagnosis", "key-diagnosis"
 	req.ExpectedVersion = readWorkVersion(t, f.store, work)
@@ -49,8 +54,7 @@ func TestDiagnosisRemovalPurgesDocument(t *testing.T) {
 	if err := removeWorkForTest(t.Context(), f.store, req); err != nil {
 		t.Fatal(err)
 	}
-	var count int
-	if err := f.store.db.QueryRow(`SELECT count(*) FROM workflow_diagnosis_records WHERE work_id=?`, work).Scan(&count); err != nil || count != 0 {
+	if err := f.store.db.QueryRow(documentCount, work).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("remaining diagnosis rows=%d err=%v", count, err)
 	}
 }

@@ -3,8 +3,10 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,6 +28,14 @@ func TestResumeRetainedDocumentsDispatch(t *testing.T) {
 		return dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(input)}, fx.envelope(t))
 	}
 	defaultBefore := request("")
+	browse := func() []byte {
+		response := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_browse", Operation: "list", Input: retryJSON(map[string]any{"work_ids": []string{fx.workID}, "detail": "full"})}, fx.envelope(t))
+		if response.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("full browse refused: %+v", response.Error)
+		}
+		return response.Result
+	}
+	browseBefore := browse()
 	boot := func() []byte {
 		snapshot, err := store.ReadSessionResume(context.Background(), fx.store, fx.workID, readPopulationProject)
 		if err != nil {
@@ -96,6 +106,9 @@ func TestResumeRetainedDocumentsDispatch(t *testing.T) {
 	if !bytes.Equal(bootBefore, boot()) {
 		t.Fatal("session boot bytes changed after documents were recorded")
 	}
+	if !bytes.Equal(browseBefore, browse()) {
+		t.Fatal("full work browse changed after documents were recorded")
+	}
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -123,15 +136,23 @@ func TestResumeRetainedDocumentsDispatch(t *testing.T) {
 			t.Fatalf("%s replacement: %+v", name, got.Documents[name])
 		}
 	}
-	foreign := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(map[string]any{"work_id": "perf-work-000-00", "view": "documents"})}, fx.envelope(t))
-	if foreign.Outcome == agentcontract.OutcomeOK || foreign.Error == nil {
-		t.Fatalf("foreign work admitted: %+v", foreign)
+	assertUnreadable := func(service *Service, env CallEnvelope, work, message string) {
+		t.Helper()
+		response := dispatchRead(t, fx.store, service, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(map[string]any{"work_id": work, "view": "documents"})}, env)
+		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unauthorized" || response.Error.Message != message || len(response.Result) != 0 {
+			t.Fatalf("expected %q, got %+v", message, response)
+		}
 	}
+	assertUnreadable(fx.service, fx.envelope(t), "perf-work-000-00", "work reference is outside authorized Product scope")
+	withoutRead, _, grant := newAuthorizedService(t, fx.store, "client-no-read", "human-no-read", []agentcontract.Capability{"work_define"}, []string{readPopulationProduct}, []string{readPopulationProject}, store.ProjectResolution{ProjectID: readPopulationProject})
+	assertUnreadable(withoutRead, agentJobsEnvelope(grant, readPopulationProject, readPopulationProduct), fx.workID, "capability outside trusted client policy")
+	resolveProjectAuthority(fx.service, store.ProjectResolution{ProjectID: readPopulationKnowledgeHome})
+	assertUnreadable(fx.service, fx.envelope(t), fx.workID, "resolved Project is outside trusted client policy")
 }
 
 func TestResumeDocumentsEscapingFragments(t *testing.T) {
 	fx := seedReadPopulationFixture(t)
-	// All decision slots and rejected choices are populated at their limits.
+	// Seed escaped JSON directly to exercise large readback, not action admission.
 	escaped := func(n int) string {
 		return strings.Repeat("<>&\u2028\u2029", n/9) + strings.Repeat("<", n%9)
 	}
@@ -174,12 +195,13 @@ func TestResumeDocumentsEscapingFragments(t *testing.T) {
 	}
 	response := read("documents", nil)
 	var content strings.Builder
-	var digest string
+	var digest, firstCursor string
 	var total int
 	for {
 		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("fragment refused: %+v", response.Error)
 		}
+		assertBoundedRead(t, response)
 		var page mutationFragmentPage
 		if err := json.Unmarshal(response.Result, &page); err != nil || page.Encoding != "json-fragment" {
 			t.Fatalf("invalid fragment: %s %v", response.Result, err)
@@ -189,9 +211,10 @@ func TestResumeDocumentsEscapingFragments(t *testing.T) {
 			if response.NextCursor == nil {
 				t.Fatal("missing first continuation")
 			}
-			changed := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(map[string]any{"work_id": fx.workID, "page": map[string]any{"cursor": *response.NextCursor}})}, fx.envelope(t))
-			if changed.Outcome == agentcontract.OutcomeOK || changed.Error == nil || changed.Error.Kind != "invalid_cursor" {
-				t.Fatalf("view change admitted: %+v", changed.Error)
+			firstCursor = *response.NextCursor
+			changed := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(map[string]any{"work_id": fx.workID, "page": map[string]any{"cursor": firstCursor}})}, fx.envelope(t))
+			if changed.Error == nil || changed.Error.Kind != "invalid_cursor" || changed.Error.Message != "cursor is bound to a different query" {
+				t.Fatalf("view change did not refuse at cursor binding: %+v", changed.Error)
 			}
 		}
 		if page.Offset != content.Len() || page.Digest != digest || page.TotalBytes != total || page.FragmentBytes != len(page.Data) {
@@ -199,6 +222,9 @@ func TestResumeDocumentsEscapingFragments(t *testing.T) {
 		}
 		content.WriteString(page.Data)
 		if page.DocumentComplete {
+			if response.NextCursor != nil {
+				t.Fatal("complete page has a continuation")
+			}
 			break
 		}
 		if response.NextCursor == nil {
@@ -207,8 +233,11 @@ func TestResumeDocumentsEscapingFragments(t *testing.T) {
 		response = read("documents", response.NextCursor)
 	}
 	doc := []byte(content.String())
-	if len(doc) != total || mutationDocumentDigest(doc) != digest {
+	if len(doc) != total || fmt.Sprintf("sha256:%x", sha256.Sum256(doc)) != digest {
 		t.Fatal("document digest or length differs")
+	}
+	if err := payloadschema.Validate("resume_documents_document", doc); err != nil {
+		t.Fatal(err)
 	}
 	var got struct {
 		Documents struct {
@@ -219,6 +248,11 @@ func TestResumeDocumentsEscapingFragments(t *testing.T) {
 	}
 	if err := json.Unmarshal(doc, &got); err != nil || got.Documents.Plan.Document != string(raw) {
 		t.Fatalf("plan bytes differ after reconstruction: %v", err)
+	}
+	execPopulationStatement(t, fx.store, `UPDATE workflow_plan_records SET payload=payload||' ' WHERE work_id=?`, fx.workID)
+	changed := read("documents", &firstCursor)
+	if changed.Error == nil || changed.Error.Kind != "invalid_cursor" || changed.Error.Message != "resume document changed or cursor offset is invalid; restart the read" {
+		t.Fatalf("cursor survived a stored document byte change: %+v", changed.Error)
 	}
 }
 

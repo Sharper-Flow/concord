@@ -42,7 +42,7 @@ func TestWorkflowDocumentsReadAdmittedReplacements(t *testing.T) {
 }
 
 func TestWorkflowDocumentsInvalidOrUnreadableRefuses(t *testing.T) {
-	for _, variant := range []string{"invalid", "unreadable"} {
+	for _, variant := range []string{"not an object", "invalid UTF-8", "unreadable"} {
 		t.Run(variant, func(t *testing.T) {
 			const work = "documents-invalid"
 			f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanFix, "diagnose")
@@ -50,11 +50,15 @@ func TestWorkflowDocumentsInvalidOrUnreadableRefuses(t *testing.T) {
 			if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 				t.Fatal(err)
 			}
-			if variant == "invalid" {
+			if variant != "unreadable" {
 				if _, err := db.Exec(`PRAGMA ignore_check_constraints=ON`); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := db.Exec(`INSERT INTO workflow_diagnosis_records(work_id,work_version,payload) VALUES(?,1,'[]')`, work); err != nil {
+				payload := `[]`
+				if variant == "invalid UTF-8" {
+					payload = "{\"root_cause\":\"\xff\"}"
+				}
+				if _, err := db.Exec(`INSERT INTO workflow_diagnosis_records(work_id,work_version,payload) VALUES(?,1,?)`, work, payload); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := db.Exec(`PRAGMA ignore_check_constraints=OFF`); err != nil {

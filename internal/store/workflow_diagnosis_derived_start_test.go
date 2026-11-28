@@ -68,6 +68,7 @@ func TestDiagnosisDocumentReadThrough(t *testing.T) {
 	const work = "diagnosis-document-read"
 	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanFix, "diagnose")
 	reproduction, cause := "Reproduce:\n  café \"quoted\"", "Cause:\n  one → two"
+	before := readWorkVersion(t, f.store, work)
 	if err := runVerdictActionAs(t, f.store, work, "record_diagnosis", diagnosisPayload(reproduction, cause), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
@@ -88,8 +89,8 @@ func TestDiagnosisDocumentReadThrough(t *testing.T) {
 		t.Fatal(err)
 	}
 	var receiptActor string
-	if err := f.store.db.QueryRow(`SELECT actor FROM effect_receipts WHERE event_id=? AND subject_id=? AND kind=?`, eventRef, work, WorkflowDiagnosisRecorded).Scan(&receiptActor); err != nil || actor != receiptActor || version <= 0 || recordedAt == "" {
-		t.Fatalf("diagnosis attribution version=%d actor=%q receipt actor=%q time=%q err=%v", version, actor, receiptActor, recordedAt, err)
+	if err := f.store.db.QueryRow(`SELECT actor FROM effect_receipts WHERE event_id=? AND subject_id=? AND kind=?`, eventRef, work, WorkflowDiagnosisRecorded).Scan(&receiptActor); err != nil || actor != receiptActor || version != before+1 || recordedAt == "" {
+		t.Fatalf("diagnosis attribution version=%d want=%d actor=%q receipt actor=%q time=%q err=%v", version, before+1, actor, receiptActor, recordedAt, err)
 	}
 	for _, query := range []string{
 		`INSERT INTO workflow_diagnosis_records(work_id,work_version,payload) VALUES('other',1,'{}')`,

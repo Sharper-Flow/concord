@@ -247,9 +247,9 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   await walk("record_clarify", { resolved_questions: [], note: "No operator questions remain." })
   await walk("complete_step", { step_id: "clarify", note: "Clarification complete." }, "complete-clarify")
   await walk("record_plan", {
-    outcomes: "The bounded handoff crosses Projects.", approach: "Exercise the real handoff route.",
-    decisions: [{ id: "decision:handoff", question: "How should the route run?", choice: "Use the real core.", rationale: "The handoff gates must remain active.", rejected: [] }],
-    touches: ["adapter/opencode"], merge_split: "One bounded item.", risks: "The handoff may fail its preservation checks.",
+    outcomes: [{ id: "outcome:handoff", statement: "The bounded handoff crosses Projects.", done_condition: "The handoff completes.", evidence: "Handoff tests.", depends_on: [] }], approach: "Exercise the real handoff route.",
+    decisions: [],
+    touches: [{ path: "adapter/opencode", role: "change" }], merge_split: "One bounded item.", risks: "The handoff may fail its preservation checks.",
   })
   const domainList = await invoke("concord_domain", "list", { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } }, sourceContext)
   expect(domainList.outcome).toBe("ok")

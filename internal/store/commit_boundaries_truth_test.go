@@ -231,7 +231,7 @@ func TestCommitBoundaryTruth(t *testing.T) {
 				case "migration":
 					op, detail = "migrate", "cannot commit schema migration"
 					path := filepath.Join(t.TempDir(), "migration.db")
-					seed := openMigratedTo(t, path, 200)
+					seed := openMigratedTo(t, path, migrations[len(migrations)-2].Version)
 					_ = seed.Close()
 					db, connector = commitBoundaryDB(t, path, landed)
 					if !landed {
@@ -245,7 +245,7 @@ func TestCommitBoundaryTruth(t *testing.T) {
 					}
 					witness = func() int {
 						var n int
-						if e := db.QueryRow("SELECT count(*) FROM schema_migrations WHERE version=201").Scan(&n); e != nil {
+						if e := db.QueryRow("SELECT count(*) FROM schema_migrations WHERE version=?", migrations[len(migrations)-1].Version).Scan(&n); e != nil {
 							t.Fatal(e)
 						}
 						return n

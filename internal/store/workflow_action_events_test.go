@@ -99,7 +99,7 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	seedWorkflowPlanFrontier(t, s, "workflow-issue31-actions", WorkflowStepPlanChange, "plan")
 	version := readWorkVersion(t, s, "workflow-issue31-actions")
 	initialVersion := version
-	plan := json.RawMessage(`{"outcomes":"working outcome","approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[]}],"touches":["file:one"],"merge_split":"one item","risks":"bounded risk"}`)
+	plan := json.RawMessage(testWorkflowPlanDocument)
 	version = issue31WorkflowActionWithPayload(t, s, "workflow-issue31-actions", version, "record_plan", "issue31-plan", actor, plan)
 	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_additions":[],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 	version = issue31WorkflowActionWithPayload(t, s, "workflow-issue31-actions", version, "approve_contract", "issue31-approve", actor, approval)

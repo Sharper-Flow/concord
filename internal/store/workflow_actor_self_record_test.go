@@ -50,7 +50,7 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 		payload  map[string]any
 	}{
 		{step: "intake", actionID: "record_intake", payload: map[string]any{"outcome": "proceed"}},
-		{step: "plan", planType: WorkflowStepPlanChange, actionID: "record_plan", payload: map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk"}},
+		{step: "plan", planType: WorkflowStepPlanChange, actionID: "record_plan", payload: testWorkflowPlanFields()},
 		{step: "diagnose", planType: WorkflowStepPlanFix, actionID: "record_diagnosis", payload: map[string]any{"reproduction": "The bounded reproduction steps.", "root_cause": "The bounded root cause."}},
 	} {
 		t.Run(testCase.actionID, func(t *testing.T) {
@@ -182,7 +182,7 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 			ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 3, 1, 0, 0, 0, time.UTC),
 		}
 	}
-	planPayload := map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk"}
+	planPayload := testWorkflowPlanFields()
 	ctx := context.Background()
 
 	t.Run("missing tuple records one exact prefix", func(t *testing.T) {
@@ -242,7 +242,8 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 		// A plan revision emits a typed record and a completion, with no new actor prefix.
 		recordedVersion := readWorkVersion(t, s, workID)
 		actorEventsBefore := countActorRecordedEvents(t, s)
-		revision := map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk", "reason": "new evidence"}
+		revision := testWorkflowPlanFields()
+		revision["reason"] = "new evidence"
 		if err := s.Transact(ctx, func(tx *Transaction) error {
 			_, err := ApplyWorkflowActionTx(ctx, tx, buildAction(workID, "record_plan", workID+"-second", agent, recordedVersion, revision))
 			return err

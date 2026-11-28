@@ -7,7 +7,15 @@ import (
 	"time"
 )
 
-const testWorkflowPlanDocument = `{"outcomes":"working outcome","approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[]}],"touches":["file:one"],"merge_split":"one item","risks":"bounded risk"}`
+const testWorkflowPlanDocument = `{"outcomes":[{"id":"outcome:one","statement":"working outcome","done_condition":"works","evidence":"test","depends_on":[]}],"approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[],"status":"settled"}],"touches":[{"path":"file:one","role":"change"}],"merge_split":"one item","risks":"bounded risk"}`
+
+func testWorkflowPlanFields() map[string]any {
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(testWorkflowPlanDocument), &fields); err != nil {
+		panic(err)
+	}
+	return fields
+}
 
 func TestWorkflowPlanActionDispatch(t *testing.T) {
 	s := openTemp(t)

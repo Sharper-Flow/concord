@@ -11,7 +11,7 @@ func TestWorkflowDocumentsReadAdmittedReplacements(t *testing.T) {
 	}{
 		{"diagnosis", "diagnose", "record_diagnosis", `{"reproduction":"first reproduction","root_cause":"first cause"}`, `{"reproduction":"second reproduction","root_cause":"second cause"}`},
 		{"clarify", "clarify", "record_clarify", `{"resolved_questions":[],"note":"first note"}`, `{"resolved_questions":[],"note":"second note"}`},
-		{"plan", "plan", "record_plan", `{"outcomes":"first outcome","approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[]}],"touches":["file:one"],"merge_split":"one item","risks":"bounded risk"}`, `{"outcomes":"second outcome","approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[]}],"touches":["file:one"],"merge_split":"one item","risks":"bounded risk","reason":"new evidence"}`},
+		{"plan", "plan", "record_plan", testWorkflowPlanDocument, `{"outcomes":[{"id":"outcome:two","statement":"second outcome","done_condition":"works","evidence":"test","depends_on":[]}],"approach":"bounded change","decisions":[],"touches":[{"path":"file:one","role":"change"}],"merge_split":"one item","risks":"bounded risk","reason":"new evidence"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			work := "documents-replacement-" + tc.name
@@ -28,13 +28,8 @@ func TestWorkflowDocumentsReadAdmittedReplacements(t *testing.T) {
 				if record == nil || record.RecordedWorkVersion < 1 || got.Version != readWorkVersion(t, f.store, work) {
 					t.Fatalf("result: %+v", got)
 				}
-				var actual, expected map[string]any
-				if json.Unmarshal([]byte(record.Document), &actual) != nil || json.Unmarshal([]byte(payload), &expected) != nil {
-					t.Fatal("invalid document JSON")
-				}
-				key := map[string]string{"diagnosis": "reproduction", "clarify": "note", "plan": "outcomes"}[tc.name]
-				if actual[key] != expected[key] {
-					t.Fatalf("document %s=%v want %v", key, actual[key], expected[key])
+				if record.Document != payload {
+					t.Fatalf("document %q want %q", record.Document, payload)
 				}
 			}
 		})

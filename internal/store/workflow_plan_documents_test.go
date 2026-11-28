@@ -10,7 +10,7 @@ import (
 
 func TestWorkflowPlanDocumentsMigrationFlow(t *testing.T) {
 	for _, tc := range []struct{ typ, action, table, document string }{
-		{"change", "record_plan", "workflow_plan_records", `{"outcomes":"working outcome","approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[]}],"touches":["file:one"],"merge_split":"one item","risks":"bounded risk"}`},
+		{"change", "record_plan", "workflow_plan_records", `{"outcomes":[{"id":"outcome:one","statement":"working outcome","done_condition":"works","evidence":"test","depends_on":[]}],"approach":"bounded change","decisions":[],"touches":[{"path":"file:one","role":"change"}],"merge_split":"one item","risks":"bounded risk"}`},
 		{"removal", "record_removal_scope", "workflow_removal_scopes", `{"removed":["file:one"],"retiring_clauses":[],"note":"retire this"}`},
 	} {
 		t.Run(tc.typ, func(t *testing.T) {
@@ -157,5 +157,82 @@ func TestWorkflowPlanDocumentsMigrationFlow(t *testing.T) {
 				t.Fatalf("later action lost document %q: %v", after, err)
 			}
 		})
+	}
+}
+
+func TestWorkflowPlanDocumentGateAcceptsStoredObject(t *testing.T) {
+	const workID = "work-document-object"
+	f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "plan")
+	defer f.store.Close()
+	ctx := t.Context()
+	err := f.store.Transact(ctx, func(tx *Transaction) error {
+		scope, err := beginWrite(ctx, tx.tx)
+		if err != nil {
+			return err
+		}
+		_, err = tx.tx.ExecContext(ctx, `INSERT INTO workflow_plan_records(work_id,work_version,payload,recorded_at,actor,event_ref) SELECT ?,1,?,'now',actor_ref,'event:fixture' FROM workflow_actors LIMIT 1`, workID, `{"outcomes":"previously recorded"}`)
+		if err != nil {
+			return err
+		}
+		plan, err := readWorkflowPlanTx(ctx, tx.tx, workID)
+		if err != nil {
+			return err
+		}
+		if err := requireWorkflowPlanDocumentTx(ctx, tx.tx, workID, plan, "plan"); err != nil {
+			return err
+		}
+		return scope.close(ctx)
+	})
+	if err != nil {
+		t.Fatalf("stored object refused: %v", err)
+	}
+	documents, err := ReadWorkflowDocuments(ctx, f.store, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if documents.Documents.Plan == nil || documents.Documents.Plan.Document != `{"outcomes":"previously recorded"}` {
+		t.Fatalf("resume did not return the stored document: %+v", documents.Documents.Plan)
+	}
+}
+
+func TestWorkflowPlanDocumentGateCompletesEarlierPlan(t *testing.T) {
+	const workID = "work-document-earlier"
+	const earlier = `{"outcomes":"working outcome","approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[]}],"touches":["file:one"],"merge_split":"one item","risks":"bounded risk"}`
+	f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "plan")
+	defer f.store.Close()
+	ctx := t.Context()
+	complete := func(key string) error {
+		version := readWorkVersion(t, f.store, workID)
+		return f.store.Transact(ctx, func(tx *Transaction) error {
+			_, err := ApplyWorkflowActionTx(ctx, tx, WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "complete_step", Payload: json.RawMessage(`{"step_id":"plan","note":"plan complete"}`), Actor: f.owner, OperationID: key, IdempotencyIdentity: key, PrincipalRef: f.owner.PrincipalRef, RequestID: key, AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()})
+			return err
+		})
+	}
+	assertFailureKind(t, complete("missing-document"), KindMissingEvidence)
+	db := f.store.DatabaseForTesting()
+	if _, err := db.Exec(`PRAGMA ignore_check_constraints=ON; INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO workflow_plan_records(work_id,work_version,payload,recorded_at,actor,event_ref) SELECT ?,1,'[]','now',actor_ref,'event:earlier' FROM workflow_actors LIMIT 1`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM write_guard; PRAGMA ignore_check_constraints=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	assertFailureKind(t, complete("non-object-document"), KindInvariantViolation)
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE workflow_plan_records SET payload=? WHERE work_id=?`, earlier, workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := complete("earlier-document"); err != nil {
+		t.Fatalf("earlier plan prevented completion: %v", err)
+	}
+	if got := workflowPlanFixtureFrontier(t, f.store, workID); got != "implement" {
+		t.Fatalf("frontier after completion = %q", got)
 	}
 }

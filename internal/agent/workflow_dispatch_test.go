@@ -62,7 +62,7 @@ func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_plan","fields":{"outcomes":"Working outcome","approach":"Bounded change","decisions":[{"id":"decision:one","question":"Which approach?","choice":"One approach","rationale":"It fits","rejected":[]}],"touches":["file:one"],"merge_split":"One item","risks":"Bounded risk"},"idempotency_key":"tx-replay-owner"}`)
+	input := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": agentPlanFields(), "idempotency_key": "tx-replay-owner"})
 	first, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("initial workflow response=%+v err=%v", first, err)
@@ -107,9 +107,7 @@ func TestWorkflowReplaySurvivesMissingSessionWorktree(t *testing.T) {
 	env := mutationEnvelope(grant, scope)
 	env.Worktree = t.TempDir()
 	env.Directory = env.Worktree
-	raw := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "idempotency_key": "replay-missing-worktree", "fields": map[string]any{
-		"outcomes": "Working outcome", "approach": "Bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "Which approach?", "choice": "One approach", "rationale": "It fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "One item", "risks": "Bounded risk",
-	}})
+	raw := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "idempotency_key": "replay-missing-worktree", "fields": agentPlanFields()})
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("initial workflow action: %+v", first.Error)
@@ -161,7 +159,7 @@ func TestWorkflowReplayStoresCommittedResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_plan","fields":{"outcomes":"Working outcome","approach":"Bounded change","decisions":[{"id":"decision:one","question":"Which approach?","choice":"One approach","rationale":"It fits","rejected":[]}],"touches":["file:one"],"merge_split":"One item","risks":"Bounded risk"},"idempotency_key":"no-response-copy"}`)
+	input := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": agentPlanFields(), "idempotency_key": "no-response-copy"})
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("workflow response=%+v err=%v", response, err)

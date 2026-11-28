@@ -37,9 +37,7 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 		t.Fatalf("approved action=%+v", response.Error)
 	}
 	version = workVersion(t, s, "work-1")
-	response = invokeWorkflowBoundary(t, s, service, env, map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": map[string]any{
-		"outcomes": "Working outcome", "approach": "Bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "Which approach?", "choice": "One approach", "rationale": "It fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "One item", "risks": "Bounded risk",
-	}, "idempotency_key": "boundary-record-plan"})
+	response = invokeWorkflowBoundary(t, s, service, env, map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": agentPlanFields(), "idempotency_key": "boundary-record-plan"})
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record plan=%+v", response.Error)
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -103,16 +104,12 @@ func requireWorkflowPlanDocumentTx(ctx context.Context, tx *sql.Tx, workID strin
 	}
 	var raw string
 	var err error
-	var action string
 	switch {
 	case stepID == "clarify":
-		action = "record_clarify"
 		err = tx.QueryRowContext(ctx, `SELECT payload FROM workflow_clarify_records WHERE work_id=?`, workID).Scan(&raw)
 	case stepID == "plan" && (plan.Type == WorkflowStepPlanChange || plan.Type == WorkflowStepPlanFix):
-		action = "record_plan"
 		err = tx.QueryRowContext(ctx, `SELECT payload FROM workflow_plan_records WHERE work_id=?`, workID).Scan(&raw)
 	case stepID == "list" && plan.Type == WorkflowStepPlanRemoval:
-		action = "record_removal_scope"
 		err = tx.QueryRowContext(ctx, `SELECT payload FROM workflow_removal_scopes WHERE work_id=?`, workID).Scan(&raw)
 	case stepID == "diagnose" && plan.Type == WorkflowStepPlanFix:
 		// The diagnose step completes only with its recorded typed diagnosis.
@@ -133,7 +130,7 @@ func requireWorkflowPlanDocumentTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return workflowProjectionError(err, "cannot read required workflow document")
 	}
-	if _, err := validateWorkflowPlanActionPayload(action, json.RawMessage(raw)); err != nil {
+	if !utf8.ValidString(raw) || !isJSONObject([]byte(raw)) {
 		return newFailure(KindInvariantViolation, "fold_event", "stored workflow document is invalid", false, "restore a verified backup")
 	}
 	return nil

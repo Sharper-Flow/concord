@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:a3dbe11c8805c584454e55497c2c4d77bc613b9f31be03a9acc6f285793e4d7f"
+const ManifestDigest = "sha256:d3972b223b7f5bcc2c15b895c6b86a3c9012febc62d6312fbf310021345171e1"
 
 type OperationKind string
 
@@ -157,13 +157,16 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_remove_input":                        {Required: []string{"operation_id", "idempotency_key", "work_id", "expected_version", "reason", "actor", "handoff", "execution_relinquished", "writes_reconciled", "effects_reconciled", "dependencies_resolved", "artifacts_verified"}, Properties: []string{"operation_id", "idempotency_key", "work_id", "expected_version", "reason", "actor", "product_id", "handoff", "linear", "execution_relinquished", "writes_reconciled", "effects_reconciled", "dependencies_resolved", "artifacts_verified"}},
 	"workflow_completion_payload":                         {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
 	"workflow_contract_update":                            {Required: []string{"contract_version", "spec_mandate", "law_modifies", "legislative_subjects"}, Properties: []string{"contract_version", "spec_mandate", "law_modifies", "legislative_subjects", "architecture_binding"}},
-	"workflow_design_decision":                            {Required: []string{"id", "question", "choice", "rationale", "rejected"}, Properties: []string{"id", "question", "choice", "rationale", "rejected"}},
+	"workflow_design_decision":                            {Required: []string{"id", "question", "choice", "rationale", "rejected", "status"}, Properties: []string{"id", "question", "choice", "rationale", "status", "approval", "rejected"}},
 	"workflow_forward_relation":                           {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},
 	"workflow_law_context":                                {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains", "registry_path"}},
 	"workflow_law_context_domain":                         {Required: []string{"domain_id", "name", "purpose"}, Properties: []string{"domain_id", "name", "purpose", "status"}},
 	"workflow_law_context_law":                            {Required: []string{"roles", "law_id"}, Properties: []string{"roles", "law_id", "obligation_ids", "kind", "status", "title", "path"}},
+	"workflow_plan_approval":                              {Required: []string{"class", "consequence"}, Properties: []string{"class", "consequence", "evidence_ref"}},
 	"workflow_plan_attempt":                               {Required: []string{"note", "completed_at"}, Properties: []string{"note", "completed_at", "completion_seq", "actor", "reviewer", "result", "commit", "link"}},
+	"workflow_plan_outcome":                               {Required: []string{"id", "statement", "done_condition", "evidence", "depends_on"}, Properties: []string{"id", "statement", "done_condition", "evidence", "depends_on"}},
 	"workflow_plan_step":                                  {Required: []string{"id", "required", "after", "reviewed"}, Properties: []string{"id", "required", "after", "skill", "helper", "reviewed", "reason", "attempts"}},
+	"workflow_plan_touch":                                 {Required: []string{"path", "role"}, Properties: []string{"path", "role"}},
 }
 var GeneratedPayloadFieldOwners = map[string]map[string][]string{
 	"concord_domain/input":           map[string][]string{"domain_id": []string{"concord_domain.detail"}, "limit": []string{"concord_domain.list"}, "page": []string{"concord_domain.list"}, "product_id": []string{"concord_domain.detail", "concord_domain.list"}, "requested_budget_seconds": []string{"concord_domain.detail", "concord_domain.list"}},

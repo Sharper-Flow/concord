@@ -12,8 +12,13 @@ func TestWorkflowPlanDocumentRejectsUndeclaredFieldsWithoutEffects(t *testing.T)
 	defer f.store.Close()
 	version := readWorkVersion(t, f.store, workID)
 	before := approvalEventCount(t, f.store, workID)
-	payload := json.RawMessage(`{"outcomes":"working outcome","approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[]}],"touches":["file:one"],"merge_split":"one item","risks":"bounded risk","unknown":"field"}`)
-	err := f.store.Transact(t.Context(), func(tx *Transaction) error {
+	fields := testWorkflowPlanFields()
+	fields["unknown"] = "field"
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = f.store.Transact(t.Context(), func(tx *Transaction) error {
 		_, err := ApplyWorkflowActionTx(t.Context(), tx, WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "record_plan", Payload: payload, Actor: f.owner,
 			OperationID: "document-invalid", IdempotencyIdentity: "document-invalid", PrincipalRef: f.owner.PrincipalRef,

@@ -51,7 +51,7 @@ func TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk"}
+	plan := testWorkflowPlanFields()
 	version, err = applyTestAction(t, s, workID, version, "record_plan", "codriver-first-plan", plan, first)
 	if err != nil {
 		t.Fatal(err)

@@ -158,17 +158,21 @@ func TestResumeDocumentsEscapingFragments(t *testing.T) {
 	}
 	decisions := make([]map[string]any, 16)
 	for i := range decisions {
-		rejected := make([]string, 8)
+		rejected := make([]string, 4)
 		for j := range rejected {
-			rejected[j] = escaped(1024)
+			rejected[j] = escaped(512)
 		}
-		decisions[i] = map[string]any{"id": "decision:" + strconv.Itoa(i), "question": escaped(512), "choice": escaped(1024), "rationale": escaped(1024), "rejected": rejected}
+		decisions[i] = map[string]any{"id": "decision:" + strconv.Itoa(i), "question": escaped(512), "choice": escaped(1024), "rationale": escaped(1024), "rejected": rejected, "status": "settled"}
 	}
-	touches := make([]string, 64)
+	touches := make([]map[string]any, 64)
 	for i := range touches {
-		touches[i] = "file:" + strconv.Itoa(i)
+		touches[i] = map[string]any{"path": "file:" + strconv.Itoa(i), "role": "change"}
 	}
-	payload := map[string]any{"outcomes": escaped(4096), "approach": escaped(4096), "decisions": decisions, "touches": touches, "merge_split": escaped(4096), "risks": escaped(4096)}
+	outcomes := make([]map[string]any, 16)
+	for i := range outcomes {
+		outcomes[i] = map[string]any{"id": "outcome:" + strconv.Itoa(i), "statement": escaped(512), "done_condition": escaped(1024), "evidence": escaped(1024), "depends_on": []string{}}
+	}
+	payload := map[string]any{"outcomes": outcomes, "approach": escaped(4096), "decisions": decisions, "touches": touches, "merge_split": escaped(4096), "risks": escaped(4096)}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)

@@ -262,7 +262,7 @@ func drivePlanDocumentForTest(t *testing.T, s *Store, workID, typ, action, docum
 
 func TestWorkRemovalDeletesPlanAndRemovalScopeRecords(t *testing.T) {
 	for _, tc := range []struct{ typ, action, table, document string }{
-		{"change", "record_plan", "workflow_plan_records", `{"outcomes":"working outcome","approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[]}],"touches":["file:one"],"merge_split":"one item","risks":"bounded risk"}`},
+		{"change", "record_plan", "workflow_plan_records", testWorkflowPlanDocument},
 		{"removal", "record_removal_scope", "workflow_removal_scopes", `{"removed":["file:one"],"retiring_clauses":[],"note":"retire this"}`},
 	} {
 		t.Run(tc.typ, func(t *testing.T) {

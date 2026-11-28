@@ -1724,6 +1724,106 @@
         }
       }
     },
+    "workflow_plan_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "statement",
+        "done_condition",
+        "evidence",
+        "depends_on"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/reference",
+          "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Bounds: 1..512 code points inclusive"
+        },
+        "done_condition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "Bounds: 1..1024 code points inclusive"
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "Bounds: 1..1024 code points inclusive"
+        },
+        "depends_on": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/reference",
+            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+          },
+          "description": "Bounds: <=8 items inclusive"
+        }
+      }
+    },
+    "workflow_plan_touch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "role"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/reference",
+          "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "change",
+            "caller",
+            "reader",
+            "check",
+            "law"
+          ]
+        }
+      }
+    },
+    "workflow_plan_approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "consequence"
+      ],
+      "properties": {
+        "class": {
+          "type": "string",
+          "enum": [
+            "product_direction",
+            "ui_ux",
+            "production_application_data",
+            "security",
+            "increased_spending",
+            "legal_obligations",
+            "reservation"
+          ]
+        },
+        "consequence": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Bounds: 1..512 code points inclusive"
+        },
+        "evidence_ref": {
+          "$ref": "#/$defs/reference",
+          "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+        }
+      }
+    },
     "workflow_design_decision": {
       "type": "object",
       "additionalProperties": false,
@@ -1732,7 +1832,8 @@
         "question",
         "choice",
         "rationale",
-        "rejected"
+        "rejected",
+        "status"
       ],
       "properties": {
         "id": {
@@ -1757,16 +1858,26 @@
           "maxLength": 1024,
           "description": "Bounds: 1..1024 code points inclusive"
         },
+        "status": {
+          "type": "string",
+          "enum": [
+            "settled",
+            "operator_question"
+          ]
+        },
+        "approval": {
+          "$ref": "#/$defs/workflow_plan_approval"
+        },
         "rejected": {
           "type": "array",
-          "maxItems": 8,
+          "maxItems": 4,
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 1024,
-            "description": "Bounds: 1..1024 code points inclusive"
+            "maxLength": 512,
+            "description": "Bounds: 1..512 code points inclusive"
           },
-          "description": "Bounds: <=8 items inclusive"
+          "description": "Bounds: <=4 items inclusive"
         }
       }
     },
@@ -6023,13 +6134,13 @@
           "maxProperties": 32,
           "properties": {
             "outcomes": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "x-minBytes": 2,
-              "pattern": "\\S",
-              "description": "Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive"
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/workflow_plan_outcome"
+              },
+              "minItems": 1,
+              "maxItems": 16,
+              "description": "Bounds: 1..16 items inclusive"
             },
             "approach": {
               "type": "string",
@@ -6045,16 +6156,14 @@
               "items": {
                 "$ref": "#/$defs/workflow_design_decision"
               },
-              "minItems": 1,
+              "minItems": 0,
               "maxItems": 16,
-              "description": "Bounds: 1..16 items inclusive"
+              "description": "Bounds: 0..16 items inclusive"
             },
             "touches": {
               "type": "array",
-              "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+                "$ref": "#/$defs/workflow_plan_touch"
               },
               "minItems": 1,
               "maxItems": 64,

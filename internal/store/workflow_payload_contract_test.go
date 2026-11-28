@@ -67,7 +67,7 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 
 func TestRecordPlanPayloadContractIsTyped(t *testing.T) {
 	t.Parallel()
-	typed := json.RawMessage(`{"outcomes":"Deliver the change","approach":"Use the current plan","decisions":[{"id":"decision:one","question":"Which route?","choice":"native","rationale":"The adapter owns the route","rejected":[]}],"touches":["work:item"],"merge_split":"One change","risks":"Check the boundary"}`)
+	typed := json.RawMessage(`{"outcomes":[{"id":"outcome:one","statement":"Deliver the change","done_condition":"Done","evidence":"Tests pass","depends_on":[]}],"approach":"Use the current plan","decisions":[{"id":"decision:one","question":"Which route?","choice":"native","rationale":"The adapter owns the route","rejected":[],"status":"settled"}],"touches":[{"path":"work:item","role":"change"}],"merge_split":"One change","risks":"Check the boundary"}`)
 	if _, err := validateWorkflowPlanActionPayload("record_plan", typed); err != nil {
 		t.Fatalf("record_plan refused its typed payload: %v", err)
 	}
@@ -76,6 +76,65 @@ func TestRecordPlanPayloadContractIsTyped(t *testing.T) {
 	invalid := strings.Replace(string(typed), `"decisions":[{`, `"decisions":[{"unexpected":true,`, 1)
 	_, err = validateWorkflowPlanActionPayload("record_plan", json.RawMessage(invalid))
 	_ = requirePayloadFailure(t, err, "decisions", "schema")
+}
+
+func TestRecordPlanPayloadContractDeclaresArrayItems(t *testing.T) {
+	action, err := WorkflowPlanActionContract("record_plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		ref      string
+		min, max int64
+	}{
+		"outcomes":  {"workflow_plan_outcome", 1, 16},
+		"decisions": {"workflow_design_decision", 0, 16},
+		"touches":   {"workflow_plan_touch", 1, 64},
+	}
+	for _, field := range action.Payload.Fields {
+		expected, ok := want[field.Name]
+		if !ok {
+			continue
+		}
+		if field.ValueType != PayloadArray || field.ItemRef != expected.ref || field.SchemaRef != "" || field.MinItems == nil || *field.MinItems != expected.min || field.MaxItems == nil || *field.MaxItems != expected.max {
+			t.Errorf("%s declaration = %+v, want element %s and bounds %d..%d", field.Name, field, expected.ref, expected.min, expected.max)
+		}
+		delete(want, field.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing array declarations: %v", want)
+	}
+}
+
+func TestRecordPlanClosure(t *testing.T) {
+	const valid = `{"outcomes":[{"id":"outcome:one","statement":"one","done_condition":"done","evidence":"test","depends_on":[]},{"id":"outcome:two","statement":"two","done_condition":"done","evidence":"test","depends_on":["outcome:one"]}],"approach":"bounded","decisions":[{"id":"decision:one","question":"which","choice":"one","rationale":"fits","rejected":[],"status":"settled"}],"touches":[{"path":"file:one","role":"change"}],"merge_split":"one","risks":"bounded"}`
+	for _, tc := range []struct{ name, old, replacement, field string }{
+		{"duplicate outcome", `"id":"outcome:two"`, `"id":"outcome:one"`, "outcomes"},
+		{"missing dependency", `"depends_on":["outcome:one"]`, `"depends_on":["outcome:missing"]`, "depends_on"},
+		{"self dependency", `"depends_on":["outcome:one"]`, `"depends_on":["outcome:two"]`, "depends_on"},
+		{"duplicate touch", `"touches":[{"path":"file:one","role":"change"}]`, `"touches":[{"path":"file:one","role":"change"},{"path":"file:one","role":"reader"}]`, "touches"},
+		{"question without approval", `"status":"settled"`, `"status":"operator_question"`, "approval"},
+		{"question with evidence", `"status":"settled"`, `"status":"operator_question","approval":{"class":"security","consequence":"risk","evidence_ref":"evidence:one"}`, "evidence_ref"},
+		{"settled approval without evidence", `"status":"settled"`, `"status":"settled","approval":{"class":"security","consequence":"risk"}`, "evidence_ref"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := json.RawMessage(strings.Replace(valid, tc.old, tc.replacement, 1))
+			_, err := validateWorkflowPlanActionPayload("record_plan", raw)
+			_ = requirePayloadFailure(t, err, tc.field, "")
+		})
+	}
+	for _, decision := range []struct{ name, statusAndApproval string }{
+		{"no approval needed", `"status":"settled"`},
+		{"operator question", `"status":"operator_question","approval":{"class":"security","consequence":"risk"}`},
+		{"settled approval", `"status":"settled","approval":{"class":"security","consequence":"risk","evidence_ref":"evidence:one"}`},
+	} {
+		t.Run(decision.name, func(t *testing.T) {
+			raw := json.RawMessage(strings.Replace(valid, `"status":"settled"`, decision.statusAndApproval, 1))
+			if _, err := validateWorkflowPlanActionPayload("record_plan", raw); err != nil {
+				t.Fatalf("valid plan refused: %v", err)
+			}
+		})
+	}
 }
 
 func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {

@@ -28,9 +28,7 @@ func TestMutationEnvelopePublishesCompleteWorkPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "idempotency_key": "obligation-envelope", "fields": map[string]any{
-		"outcomes": "Working outcome", "approach": "Bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "Which approach?", "choice": "One approach", "rationale": "It fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "One item", "risks": "Bounded risk",
-	}})
+	input := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "idempotency_key": "obligation-envelope", "fields": agentPlanFields()})
 	response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, mutationEnvelope(grant, scopeVersion))
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record_plan: %+v", response.Error)

@@ -158,5 +158,5 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
   expect(published.additionalProperties).toBe(false)
   expect(Object.keys(published.properties).sort()).toEqual(["note", "resolved_questions"])
   await walk(workID, "complete_step", { step_id: "clarify", note: "Clarification complete." })
-  await walk(workID, "record_plan", { outcomes: "Retain a one-page summary.", approach: "Produce a plain text summary.", decisions: [{ id: "decision:format", question: "What format?", choice: "Plain text.", rationale: "The answer chose it.", rejected: [] }], touches: ["output"], merge_split: "One bounded item.", risks: "The summary may exceed one page." })
+  await walk(workID, "record_plan", { outcomes: [{ id: "outcome:summary", statement: "Retain a one-page summary.", done_condition: "The summary fits one page.", evidence: "Summary review.", depends_on: [] }], approach: "Produce a plain text summary.", decisions: [{ id: "decision:format", question: "What format?", choice: "Plain text.", rationale: "The answer chose it.", rejected: [], status: "settled" }], touches: [{ path: "output", role: "change" }], merge_split: "One bounded item.", risks: "The summary may exceed one page." })
 }, { timeout: 300000 })

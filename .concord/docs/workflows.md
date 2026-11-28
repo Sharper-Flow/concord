@@ -115,7 +115,7 @@ observable outcome and proof strategy; independent Review judges the delivery.
 ### 2.1a Contract and plan
 
 Every work item carries a contract. The approved plan records
-the observable outcome and proof strategy. Work discovered outside the agreed
+the observable outcome and proof strategy. A newly recorded plan lists each outcome with its done condition, evidence and dependencies, each touched path with its role, and each decision with its status; a plan recorded earlier is served as stored. Work discovered outside the agreed
 scope forward-links as successor work under CD-0006 R1; it never substitutes.
 
 The stored step plan shows which workflow steps remain; the default

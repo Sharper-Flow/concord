@@ -128,7 +128,67 @@ func validateWorkflowPlanActionPayload(actionID string, raw json.RawMessage) (ma
 			return nil, err
 		}
 	}
+	if actionID == "record_plan" {
+		if err := validateWorkflowPlanClosure(fields); err != nil {
+			return nil, err
+		}
+	}
 	return fields, nil
+}
+
+func validateWorkflowPlanClosure(fields map[string]json.RawMessage) error {
+	var outcomes []struct {
+		ID        string   `json:"id"`
+		DependsOn []string `json:"depends_on"`
+	}
+	var touches []struct {
+		Path string `json:"path"`
+	}
+	var decisions []struct {
+		Status   string `json:"status"`
+		Approval *struct {
+			EvidenceRef *string `json:"evidence_ref"`
+		} `json:"approval"`
+	}
+	if json.Unmarshal(fields["outcomes"], &outcomes) != nil || json.Unmarshal(fields["touches"], &touches) != nil || json.Unmarshal(fields["decisions"], &decisions) != nil {
+		return newFailure(KindInvalidPayload, "workflow_action", "record_plan closure fields are invalid", false, "supply a valid plan")
+	}
+	refuse := func(detail string) error {
+		return newFailure(KindInvalidPayload, "workflow_action", detail, false, "supply a closed plan")
+	}
+	ids := make(map[string]bool, len(outcomes))
+	for _, outcome := range outcomes {
+		if ids[outcome.ID] {
+			return refuse("outcomes must have unique ids")
+		}
+		ids[outcome.ID] = true
+	}
+	for _, outcome := range outcomes {
+		for _, dependency := range outcome.DependsOn {
+			if dependency == outcome.ID || !ids[dependency] {
+				return refuse("depends_on must name another outcome in the plan")
+			}
+		}
+	}
+	paths := make(map[string]bool, len(touches))
+	for _, touch := range touches {
+		if paths[touch.Path] {
+			return refuse("touches must have unique paths")
+		}
+		paths[touch.Path] = true
+	}
+	for _, decision := range decisions {
+		if decision.Status == "operator_question" && decision.Approval == nil {
+			return refuse("operator_question requires approval")
+		}
+		if decision.Status == "settled" && decision.Approval != nil && decision.Approval.EvidenceRef == nil {
+			return refuse("settled approval requires evidence_ref")
+		}
+		if decision.Approval != nil && decision.Approval.EvidenceRef != nil && decision.Status != "settled" {
+			return refuse("approval evidence_ref requires a settled decision")
+		}
+	}
+	return nil
 }
 
 func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScope, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {

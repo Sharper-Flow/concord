@@ -50,9 +50,9 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 				t.Fatal("approving the contract advanced the plan frontier")
 			}
 			act("record_plan", map[string]any{
-				"outcomes": "The comment matches the existing behavior.", "approach": "Correct the comment without changing the function.",
-				"decisions": []map[string]any{{"id": "decision:scope", "question": "What needs correction?", "choice": "The comment", "rationale": "The implementation and check agree.", "rejected": []string{"Change the implementation"}}},
-				"touches":   []string{"pkg/value.go"}, "merge_split": "One bounded fix", "risks": "The comment could misstate behavior again.",
+				"outcomes": []map[string]any{{"id": "outcome:comment", "statement": "The comment matches the existing behavior.", "done_condition": "The comment is correct.", "evidence": "The existing check.", "depends_on": []string{}}}, "approach": "Correct the comment without changing the function.",
+				"decisions": []map[string]any{{"id": "decision:scope", "question": "What needs correction?", "choice": "The comment", "rationale": "The implementation and check agree.", "rejected": []string{"Change the implementation"}, "status": "settled"}},
+				"touches":   []map[string]any{{"path": "pkg/value.go", "role": "change"}}, "merge_split": "One bounded fix", "risks": "The comment could misstate behavior again.",
 			})
 			if workflowPlanFixtureFrontier(t, s, workID) != "plan" {
 				t.Fatal("recording the plan advanced the frontier")

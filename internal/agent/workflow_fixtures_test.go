@@ -23,7 +23,7 @@ func retryJSON(value any) json.RawMessage {
 }
 
 func agentPlanFields() map[string]any {
-	return map[string]any{"outcomes": "Working outcome", "approach": "Bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "Which approach?", "choice": "One approach", "rationale": "It fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "One item", "risks": "Bounded risk"}
+	return map[string]any{"outcomes": []map[string]any{{"id": "outcome:one", "statement": "Working outcome", "done_condition": "Works", "evidence": "Tests", "depends_on": []string{}}}, "approach": "Bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "Which approach?", "choice": "One approach", "rationale": "It fits", "rejected": []string{}, "status": "settled"}}, "touches": []map[string]any{{"path": "file:one", "role": "change"}}, "merge_split": "One item", "risks": "Bounded risk"}
 }
 
 func mustScopeVersion(t *testing.T, s *store.Store) string {

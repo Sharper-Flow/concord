@@ -134,7 +134,9 @@ def pinned_plugin_module():
     (root / "package.json").write_text(json.dumps(
         {"name": "concord-parity-plugin", "private": True,
          "dependencies": {PINNED_PLUGIN_NAME: PINNED_PLUGIN_VERSION}}) + "\n")
-    install = subprocess.run([str(bun), "install", "--cwd", str(root)], capture_output=True,
+    # Expired restored manifests trigger conditional revalidation that stalled
+    # on CI; this fresh-directory pin proof must not consult stored manifests.
+    install = subprocess.run([str(bun), "install", "--cwd", str(root), "--no-cache"], capture_output=True,
                              text=True, timeout=300)
     if install.returncode != 0:
         raise AssertionError(
@@ -645,6 +647,18 @@ class PluginToolModuleResolverTests(unittest.TestCase):
             module = plugin_tool_module(repo=repo)
         self.assertTrue(install.called)
         self.assert_module_proves_the_pin(module)
+
+    def test_pinned_install_bypasses_manifest_cache(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo(with_module=False, with_metadata=False)
+        with tempfile.TemporaryDirectory(prefix="concord-parity-install-") as root:
+            with mock.patch.object(shutil, "which", return_value="/synthetic/bun"), \
+                    mock.patch.object(tempfile, "mkdtemp", return_value=root), \
+                    mock.patch.object(subprocess, "run", side_effect=self.fake_installer()) as install:
+                plugin_tool_module(repo=repo)
+            argv = install.call_args.args[0]
+            self.assertIn("--no-cache", argv)
+            self.assertEqual(argv, ["/synthetic/bun", "install", "--cwd", root, "--no-cache"])
 
     def test_fallback_install_failure_fails_explicitly(self):
         import unittest.mock as mock

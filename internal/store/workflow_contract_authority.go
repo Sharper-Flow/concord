@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 )
 
 // activeWorkflowContractVersion returns the only contract that can authorize
@@ -25,20 +24,6 @@ func activeWorkflowContractVersion(ctx context.Context, q queryer, workID, subje
 		return 0, wrapFailure(KindUnavailable, subject, "cannot read the active workflow contract", true, "retry once the workflow contract projection is readable", err)
 	}
 	return version, nil
-}
-
-// Admission reads can expose an ambiguous projection without granting it
-// contract authority. Writers still require one active contract.
-
-func workflowProjectionInvariant(err error, detail string) bool {
-	for err != nil {
-		var failure *Failure
-		if failureAs(err, &failure) && failure.Kind == KindInvariantViolation && failure.Detail == detail {
-			return true
-		}
-		err = errors.Unwrap(err)
-	}
-	return false
 }
 
 // ensureInitialWorkflowContractApproval admits approve_contract only as the

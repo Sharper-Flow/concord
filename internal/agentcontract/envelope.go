@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -461,12 +460,6 @@ func validateRecoveryAction(action RecoveryAction) error {
 	}
 	return nil
 }
-
-var (
-	toolIDRE      = regexp.MustCompile("^concord_[a-z0-9_]+$")
-	operationIDRE = regexp.MustCompile("^[a-z0-9_]+$")
-	commitOIDRE   = regexp.MustCompile("^[0-9a-f]{40}([0-9a-f]{24})?$")
-)
 
 // enforcedRecoveryCouplings owns the actions admitted for each coupled kind.
 // The first action is the default for an unrecognized proposal. PublicRecovery

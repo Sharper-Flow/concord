@@ -15,6 +15,7 @@ linters:
     - staticcheck
     - unconvert
     - unparam
+    - unused
     - wastedassign
     - gocritic
     - dupl
@@ -32,11 +33,10 @@ linters:
       excludes:
         - G104
     staticcheck:
-      # The governed deadcode manifest owns reachability. Quick-fix checks are
-      # optional rewrites rather than defects; staticcheck still runs SA, S, and ST checks.
+      # deadcode checks reachability from ./cmd; unused finds unreferenced declarations.
+      # Quick-fix checks are optional rewrites.
       checks:
         - all
-        - -U1000
         - -QF*
     revive:
       enable-default-rules: false
@@ -47,6 +47,11 @@ linters:
   exclusions:
     warn-unused: true
     rules:
+      # Test files still hold unreferenced helpers. Production packages retain
+      # complete unused coverage.
+      - path: _test\.go
+        linters:
+          - unused
       # Test fixtures use synthetic paths, commands, and permissions. Production
       # packages retain complete gosec coverage.
       - path: _test\.go
